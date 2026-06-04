@@ -3,7 +3,10 @@ export interface Tile {
   c: 'r' | 'b' | 'a' | 'k'
 }
 
+// Used by Puzzle.sets, generator, and storage — do not remove
 export type SetRow = (Tile | null)[]
+
+export type Grid = (Tile | null)[][]
 
 export interface Puzzle {
   id: string
@@ -16,8 +19,8 @@ export interface Puzzle {
 }
 
 export interface DragSrc {
-  from: 'rack' | 'board'
-  rackIdx?: number
-  setIdx?: number
-  tileIdx?: number
+  from: 'rack' | 'grid'
+  idx?: number   // rack index
+  row?: number   // grid row
+  col?: number   // grid col
 }

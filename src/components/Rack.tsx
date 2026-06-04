@@ -33,7 +33,7 @@ interface Props {
 }
 
 export function Rack({ tiles, activeDragSrc, onDragStart, onDragEnd, onDrop }: Props) {
-  const canAcceptDrop = activeDragSrc?.from === 'board'
+  const canAcceptDrop = activeDragSrc?.from === 'grid'
 
   return (
     <div
@@ -53,11 +53,11 @@ export function Rack({ tiles, activeDragSrc, onDragStart, onDragEnd, onDrop }: P
     >
       <span style={labelStyle}>rack</span>
       <div style={tilesStyle}>
-        {tiles.map((tile, rackIdx) => (
+        {tiles.map((tile, idx) => (
           <TileEl
-            key={rackIdx}
+            key={idx}
             tile={tile}
-            src={{ from: 'rack', rackIdx }}
+            src={{ from: 'rack', idx }}
             onDragStart={onDragStart}
             onDragEnd={onDragEnd}
           />

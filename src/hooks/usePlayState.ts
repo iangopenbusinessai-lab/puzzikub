@@ -1,11 +1,14 @@
 import { useReducer, useCallback } from 'react'
-import type { Tile, SetRow, DragSrc, Puzzle } from '../types'
-import { isValidSet } from '../lib/validator'
+import type { Tile, Grid, DragSrc, Puzzle } from '../types'
+import { isValidGrid } from '../lib/validator'
+
+const GRID_ROWS = 6
+const GRID_COLS = 10
 
 interface State {
-  boardState: SetRow[]
+  grid: Grid
   rackState: Tile[]
-  history: Array<{ board: SetRow[]; rack: Tile[] }>
+  history: Array<{ grid: Grid; rack: Tile[] }>
   moves: number
   undos: number
   dragSrc: DragSrc | null
@@ -14,13 +17,13 @@ interface State {
 type Action =
   | { type: 'DRAG_START'; src: DragSrc }
   | { type: 'DRAG_END' }
-  | { type: 'DROP_BOARD'; src: DragSrc; setIdx: number; tileIdx: number }
+  | { type: 'DROP_GRID'; src: DragSrc; row: number; col: number }
   | { type: 'DROP_RACK'; src: DragSrc }
   | { type: 'UNDO' }
   | { type: 'RESET'; puzzle: Puzzle }
 
-function copyBoard(board: SetRow[]): SetRow[] {
-  return board.map(row => [...row])
+function copyGrid(grid: Grid): Grid {
+  return grid.map(row => [...row])
 }
 
 function reducer(state: State, action: Action): State {
@@ -31,38 +34,31 @@ function reducer(state: State, action: Action): State {
     case 'DRAG_END':
       return { ...state, dragSrc: null }
 
-    case 'DROP_BOARD': {
-      const { src, setIdx: toSet, tileIdx: toTile } = action
-      const board = copyBoard(state.boardState)
+    case 'DROP_GRID': {
+      const { src, row: toRow, col: toCol } = action
+      const grid = copyGrid(state.grid)
       const rack = [...state.rackState]
 
-      let tile: Tile | null = null
-      if (src.from === 'rack' && src.rackIdx !== undefined) {
-        tile = rack[src.rackIdx]
-        rack.splice(src.rackIdx, 1)
-      } else if (src.from === 'board' && src.setIdx !== undefined && src.tileIdx !== undefined) {
-        tile = board[src.setIdx][src.tileIdx] as Tile
-        board[src.setIdx][src.tileIdx] = null
-      }
-      if (!tile) return state
-
-      const displaced = board[toSet][toTile]
-      board[toSet][toTile] = tile
-
-      if (displaced) {
-        if (src.from === 'rack') {
-          rack.push(displaced)
-        } else if (src.from === 'board' && src.setIdx !== undefined && src.tileIdx !== undefined) {
-          // src slot already cleared above — put displaced there (swap)
-          board[src.setIdx][src.tileIdx] = displaced
-        }
+      if (src.from === 'rack' && src.idx !== undefined) {
+        const tile = rack[src.idx]
+        rack.splice(src.idx, 1)
+        const displaced = grid[toRow][toCol]
+        grid[toRow][toCol] = tile
+        if (displaced) rack.push(displaced)
+      } else if (src.from === 'grid' && src.row !== undefined && src.col !== undefined) {
+        // Swap the two cells (one or both may be null)
+        const tmp = grid[toRow][toCol]
+        grid[toRow][toCol] = grid[src.row][src.col]
+        grid[src.row][src.col] = tmp
+      } else {
+        return state
       }
 
       return {
         ...state,
-        boardState: board,
+        grid,
         rackState: rack,
-        history: [...state.history, { board: copyBoard(state.boardState), rack: [...state.rackState] }],
+        history: [...state.history, { grid: copyGrid(state.grid), rack: [...state.rackState] }],
         moves: state.moves + 1,
         dragSrc: null,
       }
@@ -71,21 +67,18 @@ function reducer(state: State, action: Action): State {
     case 'DROP_RACK': {
       const { src } = action
       if (src.from === 'rack') return state
-      if (src.setIdx === undefined || src.tileIdx === undefined) return state
-
-      const board = copyBoard(state.boardState)
-      const rack = [...state.rackState]
-      const tile = board[src.setIdx][src.tileIdx]
+      if (src.row === undefined || src.col === undefined) return state
+      const tile = state.grid[src.row][src.col]
       if (!tile) return state
 
-      board[src.setIdx][src.tileIdx] = null
-      rack.push(tile)
+      const grid = copyGrid(state.grid)
+      grid[src.row][src.col] = null
 
       return {
         ...state,
-        boardState: board,
-        rackState: rack,
-        history: [...state.history, { board: copyBoard(state.boardState), rack: [...state.rackState] }],
+        grid,
+        rackState: [...state.rackState, tile],
+        history: [...state.history, { grid: copyGrid(state.grid), rack: [...state.rackState] }],
         moves: state.moves + 1,
         dragSrc: null,
       }
@@ -96,7 +89,7 @@ function reducer(state: State, action: Action): State {
       const prev = state.history[state.history.length - 1]
       return {
         ...state,
-        boardState: prev.board,
+        grid: prev.grid,
         rackState: prev.rack,
         history: state.history.slice(0, -1),
         undos: state.undos + 1,
@@ -110,8 +103,17 @@ function reducer(state: State, action: Action): State {
 }
 
 function initState(puzzle: Puzzle): State {
+  const grid: Grid = Array.from({ length: GRID_ROWS }, () =>
+    Array(GRID_COLS).fill(null),
+  )
+  puzzle.sets.forEach((setRow, r) => {
+    if (r >= GRID_ROWS) return
+    setRow.forEach((tile, c) => {
+      if (c < GRID_COLS) grid[r][c] = tile
+    })
+  })
   return {
-    boardState: puzzle.sets.map(row => [...row]),
+    grid,
     rackState: [...puzzle.rack],
     history: [],
     moves: 0,
@@ -123,12 +125,12 @@ function initState(puzzle: Puzzle): State {
 export function usePlayState(puzzle: Puzzle) {
   const [state, dispatch] = useReducer(reducer, puzzle, initState)
 
-  const won = state.rackState.length === 0 && state.boardState.length > 0 && state.boardState.every(row => isValidSet(row))
+  const won = state.rackState.length === 0 && isValidGrid(state.grid)
 
   const onDragStart = useCallback((src: DragSrc) => dispatch({ type: 'DRAG_START', src }), [])
   const onDragEnd = useCallback(() => dispatch({ type: 'DRAG_END' }), [])
-  const onDropBoard = useCallback(
-    (src: DragSrc, setIdx: number, tileIdx: number) => dispatch({ type: 'DROP_BOARD', src, setIdx, tileIdx }),
+  const onDropGrid = useCallback(
+    (src: DragSrc, row: number, col: number) => dispatch({ type: 'DROP_GRID', src, row, col }),
     [],
   )
   const onDropRack = useCallback((src: DragSrc) => dispatch({ type: 'DROP_RACK', src }), [])
@@ -136,7 +138,7 @@ export function usePlayState(puzzle: Puzzle) {
   const reset = useCallback(() => dispatch({ type: 'RESET', puzzle }), [puzzle])
 
   return {
-    boardState: state.boardState,
+    grid: state.grid,
     rackState: state.rackState,
     moves: state.moves,
     undos: state.undos,
@@ -145,7 +147,7 @@ export function usePlayState(puzzle: Puzzle) {
     dragSrc: state.dragSrc,
     onDragStart,
     onDragEnd,
-    onDropBoard,
+    onDropGrid,
     onDropRack,
     undo,
     reset,

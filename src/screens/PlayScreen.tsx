@@ -1,10 +1,8 @@
 import type { CSSProperties } from 'react'
 import type { Puzzle } from '../types'
 import { usePlayState } from '../hooks/usePlayState'
-import { isValidSet } from '../lib/validator'
 import { Board } from '../components/Board'
 import { Rack } from '../components/Rack'
-import { StatsBar } from '../components/StatsBar'
 
 const DIFFS: Puzzle['diff'][] = ['easy', 'medium', 'hard']
 
@@ -27,22 +25,22 @@ function plainBtn(disabled?: boolean): CSSProperties {
 
 export function PlayScreen({ puzzle, onNewPuzzle }: Props) {
   const {
-    boardState, rackState, moves, undos, canUndo, won, dragSrc,
-    onDragStart, onDragEnd, onDropBoard, onDropRack,
+    grid, rackState, moves, undos, canUndo, won, dragSrc,
+    onDragStart, onDragEnd, onDropGrid, onDropRack,
     undo, reset,
   } = usePlayState(puzzle)
 
-  const setsValid = boardState.filter(row => isValidSet(row)).length
-
-  const diffRowStyle: CSSProperties = {
+  const statsRow: CSSProperties = {
     display: 'flex',
-    alignItems: 'center',
-    marginBottom: 20,
+    gap: 20,
+    fontSize: 12,
+    color: '#999',
+    marginBottom: 16,
   }
 
   return (
     <div>
-      <div style={diffRowStyle}>
+      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 20 }}>
         {DIFFS.map(d => (
           <button
             key={d}
@@ -63,19 +61,17 @@ export function PlayScreen({ puzzle, onNewPuzzle }: Props) {
         ))}
       </div>
 
-      <StatsBar
-        moves={moves}
-        undos={undos}
-        rackLeft={rackState.length}
-        setsValid={setsValid}
-        totalSets={boardState.length}
-      />
+      <div style={statsRow}>
+        <span>Moves: {moves}</span>
+        <span>Undos: {undos}</span>
+        <span>Rack: {rackState.length}</span>
+      </div>
 
       <Board
-        sets={boardState}
+        grid={grid}
         onDragStart={onDragStart}
         onDragEnd={onDragEnd}
-        onDrop={onDropBoard}
+        onDropGrid={onDropGrid}
       />
 
       <Rack
@@ -86,7 +82,7 @@ export function PlayScreen({ puzzle, onNewPuzzle }: Props) {
         onDrop={onDropRack}
       />
 
-      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center' }}>
         <button style={plainBtn(!canUndo)} onClick={undo} disabled={!canUndo}>Undo</button>
         <button style={plainBtn()} onClick={reset}>Reset</button>
         {won && <span style={{ fontSize: 13, color: '#27500A' }}>cleared</span>}
