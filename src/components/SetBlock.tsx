@@ -12,38 +12,27 @@ interface Props {
   onDrop: (src: DragSrc, setIdx: number, tileIdx: number) => void
 }
 
+const wrapStyle: CSSProperties = { marginBottom: 12 }
+
+const rowStyle: CSSProperties = {
+  display: 'flex',
+  gap: 5,
+  flexWrap: 'wrap',
+  alignItems: 'flex-end',
+  minHeight: 58,
+}
+
 export function SetBlock({ setIdx, row, isValid, onDragStart, onDragEnd, onDrop }: Props) {
-  const wrapStyle: CSSProperties = {
-    display: 'flex',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    padding: '8px 10px',
-    borderRadius: 7,
-    borderWidth: 2,
-    borderStyle: 'solid',
-    borderColor: isValid ? '#28a745' : 'transparent',
-    backgroundColor: isValid ? 'rgba(40,167,69,0.08)' : 'transparent',
-  }
-
   const labelStyle: CSSProperties = {
+    display: 'block',
     fontSize: 11,
-    color: '#666',
-    minWidth: 36,
-    fontFamily: 'sans-serif',
+    color: isValid ? '#27823B' : '#999',
+    marginBottom: 5,
   }
-
-  const tilesStyle: CSSProperties = {
-    display: 'flex',
-    flexDirection: 'row',
-    gap: 4,
-    flexWrap: 'wrap',
-  }
-
   return (
     <div style={wrapStyle}>
-      <span style={labelStyle}>#{setIdx + 1}</span>
-      <div style={tilesStyle}>
+      <span style={labelStyle}>Set {setIdx + 1}{isValid ? ' ✓' : ''}</span>
+      <div style={rowStyle}>
         {row.map((tile, tileIdx) =>
           tile ? (
             <TileEl
@@ -54,10 +43,7 @@ export function SetBlock({ setIdx, row, isValid, onDragStart, onDragEnd, onDrop 
               onDragEnd={onDragEnd}
             />
           ) : (
-            <SlotEl
-              key={tileIdx}
-              onDrop={src => onDrop(src, setIdx, tileIdx)}
-            />
+            <SlotEl key={tileIdx} onDrop={src => onDrop(src, setIdx, tileIdx)} />
           ),
         )}
       </div>

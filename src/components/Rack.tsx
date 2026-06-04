@@ -2,17 +2,26 @@ import type { CSSProperties } from 'react'
 import type { Tile, DragSrc } from '../types'
 import { TileEl } from './TileEl'
 
-const STYLE: CSSProperties = {
+const wrapStyle: CSSProperties = {
+  border: '0.5px solid #ddd',
+  borderRadius: 12,
+  padding: 16,
+  marginBottom: 16,
+}
+
+const labelStyle: CSSProperties = {
+  display: 'block',
+  fontSize: 11,
+  color: '#999',
+  marginBottom: 8,
+}
+
+const tilesStyle: CSSProperties = {
   display: 'flex',
-  flexDirection: 'row',
+  gap: 5,
   flexWrap: 'wrap',
-  gap: 6,
-  padding: 14,
-  backgroundColor: '#f0e6c0',
-  borderRadius: 10,
-  minHeight: 86,
-  alignItems: 'flex-start',
-  alignContent: 'flex-start',
+  minHeight: 58,
+  alignItems: 'flex-end',
 }
 
 interface Props {
@@ -25,7 +34,7 @@ interface Props {
 export function Rack({ tiles, onDragStart, onDragEnd, onDrop }: Props) {
   return (
     <div
-      style={STYLE}
+      style={wrapStyle}
       onDragOver={e => {
         e.preventDefault()
         e.dataTransfer.dropEffect = 'move'
@@ -37,15 +46,18 @@ export function Rack({ tiles, onDragStart, onDragEnd, onDrop }: Props) {
         onDrop(JSON.parse(raw) as DragSrc)
       }}
     >
-      {tiles.map((tile, rackIdx) => (
-        <TileEl
-          key={rackIdx}
-          tile={tile}
-          src={{ from: 'rack', rackIdx }}
-          onDragStart={onDragStart}
-          onDragEnd={onDragEnd}
-        />
-      ))}
+      <span style={labelStyle}>Your rack</span>
+      <div style={tilesStyle}>
+        {tiles.map((tile, rackIdx) => (
+          <TileEl
+            key={rackIdx}
+            tile={tile}
+            src={{ from: 'rack', rackIdx }}
+            onDragStart={onDragStart}
+            onDragEnd={onDragEnd}
+          />
+        ))}
+      </div>
     </div>
   )
 }
