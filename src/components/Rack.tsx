@@ -3,7 +3,7 @@ import type { Tile, DragSrc } from '../types'
 import { TileEl } from './TileEl'
 
 const wrapStyle: CSSProperties = {
-  border: '0.5px solid #ddd',
+  background: '#f0ede8',
   borderRadius: 12,
   padding: 16,
   marginBottom: 16,
@@ -18,7 +18,7 @@ const labelStyle: CSSProperties = {
 
 const tilesStyle: CSSProperties = {
   display: 'flex',
-  gap: 5,
+  gap: 8,
   flexWrap: 'wrap',
   minHeight: 58,
   alignItems: 'flex-end',
@@ -33,7 +33,6 @@ interface Props {
 }
 
 export function Rack({ tiles, activeDragSrc, onDragStart, onDragEnd, onDrop }: Props) {
-  // Rack only accepts drops from the board — rack-to-rack moves are not allowed
   const canAcceptDrop = activeDragSrc?.from === 'board'
 
   return (
@@ -52,7 +51,7 @@ export function Rack({ tiles, activeDragSrc, onDragStart, onDragEnd, onDrop }: P
         onDrop(JSON.parse(raw) as DragSrc)
       }}
     >
-      <span style={labelStyle}>Your rack</span>
+      <span style={labelStyle}>rack</span>
       <div style={tilesStyle}>
         {tiles.map((tile, rackIdx) => (
           <TileEl

@@ -13,6 +13,18 @@ interface Props {
   onNewPuzzle: (diff: Puzzle['diff']) => void
 }
 
+function plainBtn(disabled?: boolean): CSSProperties {
+  return {
+    fontSize: 13,
+    color: disabled ? '#ccc' : '#555',
+    background: 'transparent',
+    border: 'none',
+    padding: '6px 0',
+    cursor: disabled ? 'default' : 'pointer',
+    marginRight: 16,
+  }
+}
+
 export function PlayScreen({ puzzle, onNewPuzzle }: Props) {
   const {
     boardState, rackState, moves, undos, canUndo, won, dragSrc,
@@ -22,57 +34,30 @@ export function PlayScreen({ puzzle, onNewPuzzle }: Props) {
 
   const setsValid = boardState.filter(row => isValidSet(row)).length
 
-  const pillRow: CSSProperties = {
+  const diffRowStyle: CSSProperties = {
     display: 'flex',
-    gap: 6,
+    alignItems: 'center',
     marginBottom: 20,
   }
 
-  function pillStyle(active: boolean): CSSProperties {
-    return {
-      borderRadius: 20,
-      fontSize: 12,
-      padding: '4px 14px',
-      border: active ? '1px solid #85B7EB' : '1px solid #ddd',
-      background: active ? '#E6F1FB' : 'transparent',
-      color: active ? '#0C447C' : '#555',
-      cursor: 'pointer',
-      fontWeight: active ? 500 : 400,
-    }
-  }
-
-  const winStyle: CSSProperties = {
-    background: '#EAF3DE',
-    color: '#27500A',
-    borderRadius: 8,
-    padding: '10px 14px',
-    fontSize: 14,
-    marginBottom: 16,
-    fontWeight: 500,
-  }
-
-  const controlsStyle: CSSProperties = {
-    display: 'flex',
-    gap: 8,
-    marginBottom: 16,
-  }
-
-  const btnStyle = (disabled?: boolean): CSSProperties => ({
-    fontSize: 13,
-    fontWeight: 500,
-    padding: '6px 14px',
-    borderRadius: 8,
-    border: '0.5px solid #ddd',
-    background: disabled ? '#f5f5f5' : '#fff',
-    color: disabled ? '#bbb' : '#333',
-    cursor: disabled ? 'default' : 'pointer',
-  })
-
   return (
     <div>
-      <div style={pillRow}>
+      <div style={diffRowStyle}>
         {DIFFS.map(d => (
-          <button key={d} style={pillStyle(puzzle.diff === d)} onClick={() => onNewPuzzle(d)}>
+          <button
+            key={d}
+            style={{
+              fontSize: 13,
+              color: puzzle.diff === d ? '#222' : '#999',
+              fontWeight: puzzle.diff === d ? 500 : 400,
+              background: 'transparent',
+              border: 'none',
+              padding: '6px 0',
+              cursor: 'pointer',
+              marginRight: 16,
+            }}
+            onClick={() => onNewPuzzle(d)}
+          >
             {d[0].toUpperCase() + d.slice(1)}
           </button>
         ))}
@@ -85,12 +70,6 @@ export function PlayScreen({ puzzle, onNewPuzzle }: Props) {
         setsValid={setsValid}
         totalSets={boardState.length}
       />
-
-      {won && (
-        <div style={winStyle}>
-          Puzzle solved! {moves} move{moves !== 1 ? 's' : ''}, {undos} undo{undos !== 1 ? 's' : ''} used.
-        </div>
-      )}
 
       <Board
         sets={boardState}
@@ -107,11 +86,11 @@ export function PlayScreen({ puzzle, onNewPuzzle }: Props) {
         onDrop={onDropRack}
       />
 
-      <div style={controlsStyle}>
-        <button style={btnStyle(!canUndo)} onClick={undo} disabled={!canUndo}>Undo</button>
-        <button style={btnStyle()} onClick={reset}>Reset</button>
+      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
+        <button style={plainBtn(!canUndo)} onClick={undo} disabled={!canUndo}>Undo</button>
+        <button style={plainBtn()} onClick={reset}>Reset</button>
+        {won && <span style={{ fontSize: 13, color: '#27500A' }}>cleared</span>}
       </div>
-
     </div>
   )
 }

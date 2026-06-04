@@ -39,28 +39,26 @@ function App() {
   const pageStyle: CSSProperties = {
     maxWidth: 680,
     margin: '0 auto',
-    padding: 20,
+    padding: '0 20px 40px',
     fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
   }
 
   const navStyle: CSSProperties = {
+    height: 48,
     display: 'flex',
-    gap: 4,
-    marginBottom: 24,
-    borderBottom: '0.5px solid #eee',
-    paddingBottom: 12,
+    alignItems: 'center',
+    gap: 0,
   }
 
   function navBtnStyle(s: Screen): CSSProperties {
     return {
-      fontSize: 13,
-      fontWeight: 500,
-      background: screen === s ? '#eee' : 'transparent',
-      borderRadius: 8,
+      fontSize: 14,
+      color: screen === s ? '#222' : '#999',
+      fontWeight: screen === s ? 500 : 400,
+      background: 'transparent',
       border: 'none',
-      padding: '6px 14px',
+      padding: '6px 12px',
       cursor: 'pointer',
-      color: screen === s ? '#111' : '#666',
     }
   }
 

@@ -3,11 +3,16 @@ import type { SetRow, DragSrc } from '../types'
 import { SetBlock } from './SetBlock'
 
 const style: CSSProperties = {
-  background: '#f5f5f5',
-  borderRadius: 12,
-  padding: 16,
+  background: '#f0ede8',
+  borderRadius: 16,
+  padding: 20,
   marginBottom: 16,
   minHeight: 80,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 8,
+  width: '100%',
+  boxSizing: 'border-box',
 }
 
 interface Props {
