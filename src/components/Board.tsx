@@ -1,6 +1,16 @@
+import type { CSSProperties } from 'react'
 import type { SetRow, DragSrc } from '../types'
 import { isValidSet } from '../lib/validator'
 import { SetBlock } from './SetBlock'
+
+const STYLE: CSSProperties = {
+  backgroundColor: '#d4d8d0',
+  borderRadius: 10,
+  padding: 16,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 8,
+}
 
 interface Props {
   sets: SetRow[]
@@ -11,7 +21,7 @@ interface Props {
 
 export function Board({ sets, onDragStart, onDragEnd, onDrop }: Props) {
   return (
-    <div className="board">
+    <div style={STYLE}>
       {sets.map((row, setIdx) => (
         <SetBlock
           key={setIdx}

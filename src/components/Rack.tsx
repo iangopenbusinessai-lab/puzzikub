@@ -1,5 +1,19 @@
+import type { CSSProperties } from 'react'
 import type { Tile, DragSrc } from '../types'
 import { TileEl } from './TileEl'
+
+const STYLE: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'row',
+  flexWrap: 'wrap',
+  gap: 6,
+  padding: 14,
+  backgroundColor: '#f0e6c0',
+  borderRadius: 10,
+  minHeight: 86,
+  alignItems: 'flex-start',
+  alignContent: 'flex-start',
+}
 
 interface Props {
   tiles: Tile[]
@@ -11,7 +25,7 @@ interface Props {
 export function Rack({ tiles, onDragStart, onDragEnd, onDrop }: Props) {
   return (
     <div
-      className="rack"
+      style={STYLE}
       onDragOver={e => {
         e.preventDefault()
         e.dataTransfer.dropEffect = 'move'
