@@ -26,20 +26,26 @@ const tilesStyle: CSSProperties = {
 
 interface Props {
   tiles: Tile[]
+  activeDragSrc: DragSrc | null
   onDragStart: (src: DragSrc) => void
   onDragEnd: () => void
   onDrop: (src: DragSrc) => void
 }
 
-export function Rack({ tiles, onDragStart, onDragEnd, onDrop }: Props) {
+export function Rack({ tiles, activeDragSrc, onDragStart, onDragEnd, onDrop }: Props) {
+  // Rack only accepts drops from the board — rack-to-rack moves are not allowed
+  const canAcceptDrop = activeDragSrc?.from === 'board'
+
   return (
     <div
       style={wrapStyle}
       onDragOver={e => {
+        if (!canAcceptDrop) return
         e.preventDefault()
         e.dataTransfer.dropEffect = 'move'
       }}
       onDrop={e => {
+        if (!canAcceptDrop) return
         e.preventDefault()
         const raw = e.dataTransfer.getData('application/json')
         if (!raw) return

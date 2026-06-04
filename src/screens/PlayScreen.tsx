@@ -15,7 +15,7 @@ interface Props {
 
 export function PlayScreen({ puzzle, onNewPuzzle }: Props) {
   const {
-    boardState, rackState, moves, undos, canUndo, won,
+    boardState, rackState, moves, undos, canUndo, won, dragSrc,
     onDragStart, onDragEnd, onDropBoard, onDropRack,
     undo, reset,
   } = usePlayState(puzzle)
@@ -68,12 +68,6 @@ export function PlayScreen({ puzzle, onNewPuzzle }: Props) {
     cursor: disabled ? 'default' : 'pointer',
   })
 
-  const hintStyle: CSSProperties = {
-    fontSize: 12,
-    color: '#999',
-    marginTop: 4,
-  }
-
   return (
     <div>
       <div style={pillRow}>
@@ -107,6 +101,7 @@ export function PlayScreen({ puzzle, onNewPuzzle }: Props) {
 
       <Rack
         tiles={rackState}
+        activeDragSrc={dragSrc}
         onDragStart={onDragStart}
         onDragEnd={onDragEnd}
         onDrop={onDropRack}
@@ -117,7 +112,6 @@ export function PlayScreen({ puzzle, onNewPuzzle }: Props) {
         <button style={btnStyle()} onClick={reset}>Reset</button>
       </div>
 
-      {puzzle.hint && <p style={hintStyle}>{puzzle.hint}</p>}
     </div>
   )
 }

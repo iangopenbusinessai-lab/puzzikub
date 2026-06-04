@@ -74,24 +74,26 @@ function App() {
         ))}
       </nav>
 
-      {screen === 'play' && (
-        <PlayScreen puzzle={activePuzzle} onNewPuzzle={handleNewPuzzle} />
-      )}
-      {screen === 'library' && (
-        <LibraryScreen
-          puzzles={library}
-          onPlay={handlePlay}
-          onEdit={() => setScreen('editor')}
-          onSaveGenerated={p => updateLibrary([...library, p])}
-          onDelete={id => updateLibrary(library.filter(p => p.id !== id))}
-        />
-      )}
-      {screen === 'editor' && (
-        <EditorScreen
-          onSave={handleSavePuzzle}
-          onBack={() => setScreen('library')}
-        />
-      )}
+      <div style={{ minHeight: 600 }}>
+        {screen === 'play' && (
+          <PlayScreen puzzle={activePuzzle} onNewPuzzle={handleNewPuzzle} />
+        )}
+        {screen === 'library' && (
+          <LibraryScreen
+            puzzles={library}
+            onPlay={handlePlay}
+            onEdit={() => setScreen('editor')}
+            onSaveGenerated={p => updateLibrary([...library, p])}
+            onDelete={id => updateLibrary(library.filter(p => p.id !== id))}
+          />
+        )}
+        {screen === 'editor' && (
+          <EditorScreen
+            onSave={handleSavePuzzle}
+            onBack={() => setScreen('library')}
+          />
+        )}
+      </div>
     </div>
   )
 }

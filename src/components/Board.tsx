@@ -1,6 +1,5 @@
 import type { CSSProperties } from 'react'
 import type { SetRow, DragSrc } from '../types'
-import { isValidSet } from '../lib/validator'
 import { SetBlock } from './SetBlock'
 
 const style: CSSProperties = {
@@ -26,7 +25,6 @@ export function Board({ sets, onDragStart, onDragEnd, onDrop }: Props) {
           key={setIdx}
           setIdx={setIdx}
           row={row}
-          isValid={isValidSet(row)}
           onDragStart={onDragStart}
           onDragEnd={onDragEnd}
           onDrop={onDrop}

@@ -123,7 +123,7 @@ function initState(puzzle: Puzzle): State {
 export function usePlayState(puzzle: Puzzle) {
   const [state, dispatch] = useReducer(reducer, puzzle, initState)
 
-  const won = state.boardState.length > 0 && state.boardState.every(row => isValidSet(row))
+  const won = state.rackState.length === 0 && state.boardState.length > 0 && state.boardState.every(row => isValidSet(row))
 
   const onDragStart = useCallback((src: DragSrc) => dispatch({ type: 'DRAG_START', src }), [])
   const onDragEnd = useCallback(() => dispatch({ type: 'DRAG_END' }), [])
