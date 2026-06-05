@@ -1,4 +1,5 @@
-import type { Tile, SetRow, Puzzle } from '../types'
+import type { Tile, Puzzle } from '../types'
+import { isValidRun, isValidGroup } from './validator'
 
 const COLORS: Tile['c'][] = ['r', 'b', 'a', 'k']
 
@@ -15,70 +16,88 @@ function shuffle<T>(arr: T[]): T[] {
   return a
 }
 
-function makeRun(color: Tile['c'], start: number, length: number): Tile[] {
-  return Array.from({ length }, (_, i) => ({ n: start + i, c: color }))
+function makeRun(len: number): Tile[] {
+  const color = COLORS[rand(0, 3)]
+  const start = rand(1, 14 - len)  // start + len - 1 <= 13
+  return Array.from({ length: len }, (_, i) => ({ n: start + i, c: color }))
 }
 
-function makeGroup(num: number, size: number): Tile[] {
-  return shuffle(COLORS).slice(0, size).map(c => ({ n: num, c }))
+function makeGroup(len: number): Tile[] {
+  const n = rand(1, 13)
+  const colors = shuffle([...COLORS]).slice(0, len)
+  return colors.map(c => ({ n, c }))
 }
 
-function generateSets(count: number): { sets: SetRow[]; solutionTiles: Tile[] } {
-  const sets: SetRow[] = []
-  const solutionTiles: Tile[] = []
+function makeSet(len: number): Tile[] {
+  if (len > 4) return makeRun(len)  // only 4 colors, groups can't exceed 4 tiles
+  return Math.random() > 0.5 ? makeRun(len) : makeGroup(len)
+}
 
-  for (let i = 0; i < count; i++) {
-    const useRun = Math.random() > 0.4
-    let tiles: Tile[]
+function tileKey(t: Tile): string {
+  return `${t.n}:${t.c}`
+}
 
-    if (useRun) {
-      const color = COLORS[rand(0, 3)]
-      const length = rand(3, 5)
-      const start = rand(1, 13 - length)
-      tiles = makeRun(color, start, length)
-    } else {
-      const num = rand(1, 13)
-      const size = rand(3, 4)
-      tiles = makeGroup(num, size)
-    }
+function hasCollision(existing: Set<string>, candidate: Tile[]): boolean {
+  return candidate.some(t => existing.has(tileKey(t)))
+}
 
-    const slotCount = tiles.length + rand(0, 2)
-    const row: SetRow = Array(slotCount).fill(null)
-    tiles.forEach((t, idx) => { row[idx] = t })
-    sets.push(row)
-    solutionTiles.push(...tiles)
-  }
-
-  return { sets, solutionTiles }
+const CONFIGS: Record<Puzzle['diff'], { count: [number, number]; len: [number, number] }> = {
+  easy:   { count: [2, 2], len: [3, 3] },
+  medium: { count: [2, 3], len: [3, 4] },
+  hard:   { count: [3, 4], len: [3, 5] },
 }
 
 export function generatePuzzle(diff: Puzzle['diff']): Puzzle {
-  const setCounts: Record<Puzzle['diff'], number> = { easy: 2, medium: 3, hard: 5 }
-  const rackSizes: Record<Puzzle['diff'], [number, number]> = {
-    easy: [3, 5],
-    medium: [5, 8],
-    hard: [8, 12],
+  const { count, len } = CONFIGS[diff]
+
+  for (let outer = 0; outer < 100; outer++) {
+    const setCount = rand(count[0], count[1])
+    const used = new Set<string>()
+    const allTiles: Tile[] = []
+    let ok = true
+
+    for (let i = 0; i < setCount; i++) {
+      let placed = false
+
+      for (let attempt = 0; attempt < 20; attempt++) {
+        const setLen = rand(len[0], len[1])
+        const tiles = makeSet(setLen)
+
+        if (!hasCollision(used, tiles) &&
+            (isValidRun(tiles) || isValidGroup(tiles))) {
+          tiles.forEach(t => used.add(tileKey(t)))
+          allTiles.push(...tiles)
+          placed = true
+          break
+        }
+      }
+
+      if (!placed) { ok = false; break }
+    }
+
+    if (!ok) continue
+
+    return {
+      id: crypto.randomUUID(),
+      name: `${diff[0].toUpperCase()}${diff.slice(1)} Puzzle`,
+      diff,
+      sets: [],           // grid starts empty — all tiles are in the rack
+      rack: shuffle(allTiles),
+      hint: '',
+      generated: true,
+    }
   }
 
-  const setCount = setCounts[diff]
-  const { sets, solutionTiles } = generateSets(setCount)
-
-  const [minRack, maxRack] = rackSizes[diff]
-  const rackSize = rand(minRack, maxRack)
-  const extraTiles: Tile[] = Array.from({ length: rackSize }, () => ({
-    n: rand(1, 13),
-    c: COLORS[rand(0, 3)],
-  }))
-
-  const rack = shuffle([...solutionTiles, ...extraTiles])
-
+  // Unreachable in practice, but satisfies return type
   return {
     id: crypto.randomUUID(),
-    name: `${diff.charAt(0).toUpperCase() + diff.slice(1)} Puzzle`,
+    name: 'Easy Puzzle',
     diff,
-    sets,
-    rack,
-    hint: 'Place tiles from your rack onto the board to complete valid sets.',
+    sets: [],
+    rack: shuffle([
+      { n: 1, c: 'r' }, { n: 2, c: 'r' }, { n: 3, c: 'r' },
+    ]),
+    hint: '',
     generated: true,
   }
 }

@@ -1,10 +1,13 @@
-import type { CSSProperties } from 'react'
+import { useState, useEffect, type CSSProperties } from 'react'
 import type { Puzzle } from '../types'
 import { usePlayState } from '../hooks/usePlayState'
+import { validateGrid } from '../lib/validator'
 import { Board } from '../components/Board'
 import { Rack } from '../components/Rack'
 
 const DIFFS: Puzzle['diff'][] = ['easy', 'medium', 'hard']
+
+type CheckResult = null | 'valid' | 'invalid' | 'needsRack'
 
 interface Props {
   puzzle: Puzzle
@@ -25,10 +28,23 @@ function plainBtn(disabled?: boolean): CSSProperties {
 
 export function PlayScreen({ puzzle, onNewPuzzle }: Props) {
   const {
-    grid, rackState, moves, undos, canUndo, won, dragSrc,
+    grid, rackState, moves, undos, canUndo, dragSrc,
     onDragStart, onDragEnd, onDropGrid, onDropRack,
     undo, reset,
   } = usePlayState(puzzle)
+
+  const [checkResult, setCheckResult] = useState<CheckResult>(null)
+
+  // Reset check result whenever a new puzzle is loaded
+  useEffect(() => { setCheckResult(null) }, [puzzle.id])
+
+  function handleCheck() {
+    if (rackState.length > 0) {
+      setCheckResult('needsRack')
+      return
+    }
+    setCheckResult(validateGrid(grid) ? 'valid' : 'invalid')
+  }
 
   const statsRow: CSSProperties = {
     display: 'flex',
@@ -85,7 +101,16 @@ export function PlayScreen({ puzzle, onNewPuzzle }: Props) {
       <div style={{ display: 'flex', alignItems: 'center' }}>
         <button style={plainBtn(!canUndo)} onClick={undo} disabled={!canUndo}>Undo</button>
         <button style={plainBtn()} onClick={reset}>Reset</button>
-        {won && <span style={{ fontSize: 13, color: '#27500A' }}>cleared</span>}
+        <button style={plainBtn()} onClick={handleCheck}>Check</button>
+        {checkResult === 'valid' && (
+          <span style={{ fontSize: 13, color: '#27500A' }}>cleared</span>
+        )}
+        {checkResult === 'invalid' && (
+          <span style={{ fontSize: 13, color: '#A32D2D' }}>not quite</span>
+        )}
+        {checkResult === 'needsRack' && (
+          <span style={{ fontSize: 13, color: '#A32D2D' }}>place all tiles first</span>
+        )}
       </div>
     </div>
   )
