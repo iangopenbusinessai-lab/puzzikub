@@ -34,9 +34,11 @@ export function PlayScreen({ puzzle, onNewPuzzle }: Props) {
   } = usePlayState(puzzle)
 
   const [checkResult, setCheckResult] = useState<CheckResult>(null)
+  const [checkHovered, setCheckHovered] = useState(false)
 
-  // Reset check result whenever a new puzzle is loaded
+  // Reset check result on new puzzle or any move/undo
   useEffect(() => { setCheckResult(null) }, [puzzle.id])
+  useEffect(() => { if (checkResult !== null) setCheckResult(null) }, [moves, undos]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleCheck() {
     if (rackState.length > 0) {
@@ -101,7 +103,12 @@ export function PlayScreen({ puzzle, onNewPuzzle }: Props) {
       <div style={{ display: 'flex', alignItems: 'center' }}>
         <button style={plainBtn(!canUndo)} onClick={undo} disabled={!canUndo}>Undo</button>
         <button style={plainBtn()} onClick={reset}>Reset</button>
-        <button style={plainBtn()} onClick={handleCheck}>Check</button>
+        <button
+          style={{ ...plainBtn(), color: checkHovered ? '#222' : '#555' }}
+          onMouseEnter={() => setCheckHovered(true)}
+          onMouseLeave={() => setCheckHovered(false)}
+          onClick={handleCheck}
+        >Check</button>
         {checkResult === 'valid' && (
           <span style={{ fontSize: 13, color: '#27500A' }}>cleared</span>
         )}
