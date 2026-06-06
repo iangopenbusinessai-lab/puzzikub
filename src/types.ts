@@ -5,14 +5,16 @@ export interface Tile {
 
 export type Difficulty = 'easy' | 'medium' | 'hard'
 
+// Grid dimensions vary per puzzle (not always 6×10)
 export type Grid = (Tile | null)[][]
 
 export interface Puzzle {
   id: string
   name: string
   diff: Difficulty
-  rack: Tile[]
-  hint: string
+  grid: Grid          // partially filled — the puzzle starting state
+  rack: Tile[]        // disrupted tiles the player must place
+  optimalMoves: number // = number of disruptions made
   generated: boolean
 }
 

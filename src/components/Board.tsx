@@ -5,7 +5,7 @@ const NUM_COLOR: Record<Tile['c'], string> = {
   r: '#A32D2D',
   b: '#185FA5',
   a: '#BA7517',
-  k: '#222222',
+  k: '#222',
 }
 
 interface Props {
@@ -18,10 +18,14 @@ interface Props {
 export function Board({ grid, onDragStart, onDragEnd, onDrop }: Props) {
   const [hoverCell, setHoverCell] = useState<string | null>(null)
 
+  const rows = grid.length
+  const cols = grid[0]?.length ?? 0
+  if (rows === 0 || cols === 0) return null
+
   const cells: React.ReactElement[] = []
 
-  for (let r = 0; r < grid.length; r++) {
-    for (let c = 0; c < grid[r].length; c++) {
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
       const tile = grid[r][c]
       const key = `${r}-${c}`
       const hovered = hoverCell === key
@@ -81,9 +85,9 @@ export function Board({ grid, onDragStart, onDragEnd, onDrop }: Props) {
 
   return (
     <div style={{
-      display: 'grid',
-      gridTemplateColumns: 'repeat(10, 46px)',
-      gridTemplateRows: 'repeat(6, 58px)',
+      display: 'inline-grid',
+      gridTemplateColumns: `repeat(${cols}, 46px)`,
+      gridTemplateRows: `repeat(${rows}, 58px)`,
       gap: 6,
       background: '#e8e5df',
       borderRadius: 16,

@@ -1,13 +1,11 @@
 import { useState, useCallback } from 'react'
-import type { Tile, Puzzle } from '../types'
+import type { Tile, Grid, Puzzle } from '../types'
 
 export function useEditor() {
   const [editorSets, setEditorSets] = useState<(Tile | null)[][]>([[null, null, null]])
   const [editorRack, setEditorRack] = useState<Tile[]>([])
   const [name, setName] = useState('')
   const [diff, setDiff] = useState<Puzzle['diff']>('easy')
-  const [hint, setHint] = useState('')
-
   const addSet = useCallback(() => {
     setEditorSets(prev => [...prev, [null, null, null]])
   }, [])
@@ -39,32 +37,39 @@ export function useEditor() {
     setEditorRack([])
     setName('')
     setDiff('easy')
-    setHint('')
   }, [])
 
   const isValid = name.trim().length > 0 && editorSets.length > 0
 
-  const buildPuzzle = useCallback(
-    (): Puzzle => ({
+  const buildPuzzle = useCallback((): Puzzle => {
+    const sets = editorSets
+    const maxLen = Math.max(...sets.map(s => s.length), 3)
+    const cols = maxLen + 2
+    const rows = sets.length + 1
+    const grid: Grid = Array.from({ length: rows }, () => Array(cols).fill(null))
+    for (let i = 0; i < sets.length; i++) {
+      for (let j = 0; j < sets[i].length; j++) {
+        grid[i][j + 1] = sets[i][j]
+      }
+    }
+    return {
       id: crypto.randomUUID(),
       name: name.trim(),
       diff,
+      grid,
       rack: editorRack,
-      hint: hint.trim() || 'Complete all sets.',
+      optimalMoves: editorRack.length,
       generated: false,
-    }),
-    [editorRack, name, diff, hint],
-  )
+    }
+  }, [editorSets, editorRack, name, diff])
 
   return {
     editorSets,
     editorRack,
     name,
     diff,
-    hint,
     setName,
     setDiff,
-    setHint,
     addSet,
     removeSet,
     addSlot,

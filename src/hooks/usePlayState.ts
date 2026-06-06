@@ -1,8 +1,5 @@
-import { useReducer, useCallback, useRef } from 'react'
+import { useReducer, useCallback } from 'react'
 import type { Tile, Grid, DragSrc, Puzzle } from '../types'
-
-const ROWS = 6
-const COLS = 10
 
 export type DropTarget = { to: 'grid'; row: number; col: number } | { to: 'rack' }
 
@@ -13,6 +10,7 @@ interface State {
   moves: number
   undos: number
   won: boolean
+  optimalMoves: number
   dragSrc: DragSrc | null
 }
 
@@ -21,26 +19,25 @@ type Action =
   | { type: 'SET_DRAG'; src: DragSrc | null }
   | { type: 'DROP'; target: DropTarget }
   | { type: 'UNDO' }
+  | { type: 'RESET' }
   | { type: 'SET_WON'; won: boolean }
 
-function emptyGrid(): Grid {
-  return Array.from({ length: ROWS }, () => Array(COLS).fill(null))
-}
-
-function copyGrid(g: Grid): Grid {
+function deepCopyGrid(g: Grid): Grid {
   return g.map(row => [...row])
 }
 
 function reducer(state: State, action: Action): State {
   switch (action.type) {
+
     case 'LOAD':
       return {
-        grid: emptyGrid(),
+        grid: deepCopyGrid(action.puzzle.grid),
         rack: [...action.puzzle.rack],
         history: [],
         moves: 0,
         undos: 0,
         won: false,
+        optimalMoves: action.puzzle.optimalMoves,
         dragSrc: null,
       }
 
@@ -48,35 +45,38 @@ function reducer(state: State, action: Action): State {
       return { ...state, dragSrc: action.src }
 
     case 'DROP': {
-      const { dragSrc, grid: g, rack: r } = state
+      const { dragSrc } = state
       if (!dragSrc) return state
 
       const { target } = action
-      const grid = copyGrid(g)
-      const rack = [...r]
-      const snapshot = { grid: copyGrid(g), rack: [...r] }
+      const grid = deepCopyGrid(state.grid)
+      const rack = [...state.rack]
+      const snapshot = { grid: deepCopyGrid(state.grid), rack: [...state.rack] }
+
+      const tile: Tile | null =
+        dragSrc.from === 'rack'
+          ? rack[dragSrc.rackIdx!]
+          : grid[dragSrc.row!][dragSrc.col!]
+
+      if (!tile) return state
 
       if (target.to === 'grid') {
         const { row, col } = target
         if (dragSrc.from === 'rack') {
           if (dragSrc.rackIdx === undefined) return state
-          const tile = rack[dragSrc.rackIdx]
           rack.splice(dragSrc.rackIdx, 1)
           const displaced = grid[row][col]
           grid[row][col] = tile
           if (displaced) rack.push(displaced)
         } else {
           if (dragSrc.row === undefined || dragSrc.col === undefined) return state
-          const tmp = grid[row][col]
-          grid[row][col] = grid[dragSrc.row][dragSrc.col]
-          grid[dragSrc.row][dragSrc.col] = tmp
+          grid[dragSrc.row][dragSrc.col] = grid[row][col] // null if empty, displaced tile if occupied
+          grid[row][col] = tile
         }
       } else {
-        // target.to === 'rack'
+        // GRID→RACK
         if (dragSrc.from === 'rack') return state
         if (dragSrc.row === undefined || dragSrc.col === undefined) return state
-        const tile = grid[dragSrc.row][dragSrc.col]
-        if (!tile) return state
         grid[dragSrc.row][dragSrc.col] = null
         rack.push(tile)
       }
@@ -105,32 +105,42 @@ function reducer(state: State, action: Action): State {
       }
     }
 
+    case 'RESET': {
+      if (state.history.length === 0) return state
+      const initial = state.history[0]
+      return {
+        ...state,
+        grid: initial.grid,
+        rack: initial.rack,
+        history: [],
+        moves: 0,
+        undos: 0,
+        won: false,
+        dragSrc: null,
+      }
+    }
+
     case 'SET_WON':
       return { ...state, won: action.won }
   }
 }
 
 const INIT: State = {
-  grid: emptyGrid(),
+  grid: [],
   rack: [],
   history: [],
   moves: 0,
   undos: 0,
   won: false,
+  optimalMoves: 0,
   dragSrc: null,
 }
 
 export function usePlayState() {
   const [state, dispatch] = useReducer(reducer, INIT)
-  const puzzleRef = useRef<Puzzle | null>(null)
 
   const loadPuzzle = useCallback((p: Puzzle) => {
-    puzzleRef.current = p
     dispatch({ type: 'LOAD', puzzle: p })
-  }, [])
-
-  const reset = useCallback(() => {
-    if (puzzleRef.current) dispatch({ type: 'LOAD', puzzle: puzzleRef.current })
   }, [])
 
   const setDragSrc = useCallback((src: DragSrc | null) => {
@@ -145,6 +155,10 @@ export function usePlayState() {
     dispatch({ type: 'UNDO' })
   }, [])
 
+  const reset = useCallback(() => {
+    dispatch({ type: 'RESET' })
+  }, [])
+
   const setWon = useCallback((won: boolean) => {
     dispatch({ type: 'SET_WON', won })
   }, [])
@@ -155,6 +169,7 @@ export function usePlayState() {
     moves: state.moves,
     undos: state.undos,
     won: state.won,
+    optimalMoves: state.optimalMoves,
     dragSrc: state.dragSrc,
     setDragSrc,
     drop,

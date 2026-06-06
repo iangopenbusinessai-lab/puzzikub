@@ -21,8 +21,8 @@ const COLOR_CLASS: Record<Tile['c'], string> = {
 export function EditorScreen({ onSave, onBack }: Props) {
   const {
     editorSets, editorRack,
-    name, diff, hint,
-    setName, setDiff, setHint,
+    name, diff,
+    setName, setDiff,
     addSet, removeSet, addSlot, removeSlot,
     addTileToRack, removeTileFromRack,
     isValid, buildPuzzle, reset,
@@ -50,10 +50,6 @@ export function EditorScreen({ onSave, onBack }: Props) {
             <option value="medium">Medium</option>
             <option value="hard">Hard</option>
           </select>
-        </label>
-        <label className="editor-label">
-          Hint
-          <input value={hint} onChange={e => setHint(e.target.value)} placeholder="Optional hint" />
         </label>
       </section>
 
