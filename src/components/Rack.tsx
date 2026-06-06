@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { Tile, DragSrc } from '../types'
 
 const NUM_COLOR: Record<Tile['c'], string> = {
@@ -14,7 +15,17 @@ interface Props {
   onDrop: () => void
 }
 
+function suppressGhost(e: React.DragEvent) {
+  const ghost = document.createElement('div')
+  ghost.style.cssText = 'position:absolute;top:-9999px'
+  document.body.appendChild(ghost)
+  e.dataTransfer.setDragImage(ghost, 0, 0)
+  setTimeout(() => document.body.removeChild(ghost), 0)
+}
+
 export function Rack({ tiles, onDragStart, onDragEnd, onDrop }: Props) {
+  const [draggingIdx, setDraggingIdx] = useState<number | null>(null)
+
   return (
     <div>
       <div style={{ fontSize: 11, color: '#999', marginBottom: 8 }}>rack</div>
@@ -47,16 +58,20 @@ export function Rack({ tiles, onDragStart, onDragEnd, onDrop }: Props) {
               fontSize: 20,
               fontWeight: 500,
               color: NUM_COLOR[tile.c],
-              cursor: 'grab',
+              cursor: draggingIdx === i ? 'grabbing' : 'grab',
               userSelect: 'none',
               boxSizing: 'border-box',
+              opacity: draggingIdx === i ? 0.4 : 1,
+              transform: draggingIdx === i ? 'scale(0.95)' : 'none',
             }}
             onDragStart={e => {
+              suppressGhost(e)
               e.dataTransfer.effectAllowed = 'move'
               e.dataTransfer.setData('text/plain', String(i))
+              setDraggingIdx(i)
               onDragStart({ from: 'rack', rackIdx: i })
             }}
-            onDragEnd={onDragEnd}
+            onDragEnd={() => { setDraggingIdx(null); onDragEnd() }}
           >
             {tile.n}
           </div>
