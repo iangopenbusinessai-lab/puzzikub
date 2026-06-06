@@ -4,41 +4,27 @@ const STORAGE_KEY = 'puzzikub_library'
 
 const SEED_PUZZLES: Puzzle[] = [
   {
-    id: 'seed-1',
-    name: 'Starter Run',
+    id: 'seed1',
+    name: 'First steps',
     diff: 'easy',
-    sets: [
-      [{ n: 5, c: 'r' }, null, null],
-    ],
-    rack: [{ n: 5, c: 'r' }, { n: 6, c: 'r' }, { n: 7, c: 'r' }, { n: 9, c: 'b' }],
-    hint: 'Complete the red run.',
+    rack: [{ n: 6, c: 'r' }, { n: 9, c: 'k' }, { n: 4, c: 'r' }, { n: 5, c: 'r' }, { n: 9, c: 'b' }, { n: 9, c: 'r' }],
+    hint: '',
     generated: false,
   },
   {
-    id: 'seed-2',
-    name: 'Triple Group',
-    diff: 'easy',
-    sets: [
-      [null, null, null],
-    ],
-    rack: [{ n: 8, c: 'r' }, { n: 8, c: 'b' }, { n: 8, c: 'a' }, { n: 3, c: 'k' }],
-    hint: 'Form a group of 8s.',
-    generated: false,
-  },
-  {
-    id: 'seed-3',
-    name: 'Double Duty',
+    id: 'seed2',
+    name: 'Two fronts',
     diff: 'medium',
-    sets: [
-      [null, null, null, null],
-      [null, null, null],
-    ],
-    rack: [
-      { n: 1, c: 'r' }, { n: 2, c: 'r' }, { n: 3, c: 'r' }, { n: 4, c: 'r' },
-      { n: 7, c: 'b' }, { n: 7, c: 'k' }, { n: 7, c: 'a' },
-      { n: 11, c: 'r' },
-    ],
-    hint: 'Fill both sets.',
+    rack: [{ n: 6, c: 'b' }, { n: 11, c: 'k' }, { n: 5, c: 'b' }, { n: 7, c: 'b' }, { n: 11, c: 'r' }, { n: 11, c: 'a' }],
+    hint: '',
+    generated: false,
+  },
+  {
+    id: 'seed3',
+    name: 'Triple threat',
+    diff: 'hard',
+    rack: [{ n: 4, c: 'r' }, { n: 10, c: 'k' }, { n: 8, c: 'k' }, { n: 3, c: 'r' }, { n: 5, c: 'r' }, { n: 10, c: 'b' }, { n: 10, c: 'a' }, { n: 7, c: 'k' }, { n: 9, c: 'k' }],
+    hint: '',
     generated: false,
   },
 ]

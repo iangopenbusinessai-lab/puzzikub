@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from 'react'
+import { useState, useEffect, type CSSProperties } from 'react'
 import type { Puzzle } from './types'
 import { loadLibrary, saveLibrary } from './lib/storage'
 import { generatePuzzle } from './lib/generator'
@@ -14,7 +14,9 @@ const NAV_ORDER: Screen[] = ['play', 'library', 'editor']
 function App() {
   const [screen, setScreen] = useState<Screen>('play')
   const [library, setLibrary] = useState<Puzzle[]>(loadLibrary)
-  const [activePuzzle, setActivePuzzle] = useState<Puzzle>(() => generatePuzzle('easy'))
+  const [activePuzzle, setActivePuzzle] = useState<Puzzle | null>(null)
+
+  useEffect(() => { setActivePuzzle(generatePuzzle('easy')) }, [])
 
   function updateLibrary(updated: Puzzle[]) {
     setLibrary(updated)
@@ -23,11 +25,6 @@ function App() {
 
   function handlePlay(puzzle: Puzzle) {
     setActivePuzzle(puzzle)
-    setScreen('play')
-  }
-
-  function handleNewPuzzle(diff: Puzzle['diff']) {
-    setActivePuzzle(generatePuzzle(diff))
     setScreen('play')
   }
 
@@ -73,8 +70,8 @@ function App() {
       </nav>
 
       <div style={{ minHeight: 600 }}>
-        {screen === 'play' && (
-          <PlayScreen puzzle={activePuzzle} onNewPuzzle={handleNewPuzzle} />
+        {screen === 'play' && activePuzzle && (
+          <PlayScreen puzzle={activePuzzle} activeScreen={screen} onNav={setScreen} />
         )}
         {screen === 'library' && (
           <LibraryScreen

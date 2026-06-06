@@ -1,8 +1,8 @@
 import { useState, useCallback } from 'react'
-import type { Tile, SetRow, Puzzle } from '../types'
+import type { Tile, Puzzle } from '../types'
 
 export function useEditor() {
-  const [editorSets, setEditorSets] = useState<SetRow[]>([[null, null, null]])
+  const [editorSets, setEditorSets] = useState<(Tile | null)[][]>([[null, null, null]])
   const [editorRack, setEditorRack] = useState<Tile[]>([])
   const [name, setName] = useState('')
   const [diff, setDiff] = useState<Puzzle['diff']>('easy')
@@ -49,12 +49,11 @@ export function useEditor() {
       id: crypto.randomUUID(),
       name: name.trim(),
       diff,
-      sets: editorSets,
       rack: editorRack,
       hint: hint.trim() || 'Complete all sets.',
       generated: false,
     }),
-    [editorSets, editorRack, name, diff, hint],
+    [editorRack, name, diff, hint],
   )
 
   return {

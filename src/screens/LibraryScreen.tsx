@@ -90,7 +90,7 @@ export function LibraryScreen({ puzzles, onPlay, onEdit, onSaveGenerated, onDele
       <div style={genRowStyle}>
         <span style={{ fontSize: 11, color: '#999' }}>Generate:</span>
         {DIFFS.map(d => (
-          <button key={d} style={smallBtn()} onClick={() => onSaveGenerated(generatePuzzle(d))}>
+          <button key={d} style={smallBtn()} onClick={() => { const p = generatePuzzle(d); if (p) onSaveGenerated(p) }}>
             {d[0].toUpperCase() + d.slice(1)}
           </button>
         ))}
