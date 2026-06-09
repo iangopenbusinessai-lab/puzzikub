@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from 'react'
+import { useState, useEffect } from 'react'
 import type { Puzzle } from './types'
 import { loadLibrary, saveLibrary } from './lib/storage'
 import { LibraryScreen } from './screens/LibraryScreen'
@@ -6,13 +6,30 @@ import { PlayScreen } from './screens/PlayScreen'
 import { EditorScreen } from './screens/EditorScreen'
 
 type Screen = 'play' | 'library' | 'editor'
+type ThemeOption = 'light' | 'dark' | 'system'
 
-const NAV_LABELS: Record<Screen, string> = { play: 'Play', library: 'Library', editor: 'Editor' }
-const NAV_ORDER: Screen[] = ['play', 'library', 'editor']
+function resolveTheme(t: ThemeOption): 'light' | 'dark' {
+  if (t === 'system') return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+  return t
+}
 
 function App() {
   const [screen, setScreen] = useState<Screen>('play')
   const [library, setLibrary] = useState<Puzzle[]>(loadLibrary)
+  const [theme, setTheme] = useState<ThemeOption>('system')
+  const [soundEnabled, setSoundEnabled] = useState(true)
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', resolveTheme(theme))
+  }, [theme])
+
+  useEffect(() => {
+    if (theme !== 'system') return
+    const mq = window.matchMedia('(prefers-color-scheme: dark)')
+    const handler = () => document.documentElement.setAttribute('data-theme', mq.matches ? 'dark' : 'light')
+    mq.addEventListener('change', handler)
+    return () => mq.removeEventListener('change', handler)
+  }, [theme])
 
   function updateLibrary(updated: Puzzle[]) {
     setLibrary(updated)
@@ -28,63 +45,34 @@ function App() {
     setScreen('library')
   }
 
-  const pageStyle: CSSProperties = {
-    maxWidth: 680,
-    margin: '0 auto',
-    padding: '0 20px 40px',
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-  }
-
-  const navStyle: CSSProperties = {
-    height: 48,
-    display: 'flex',
-    alignItems: 'center',
-    gap: 0,
-  }
-
-  function navBtnStyle(s: Screen): CSSProperties {
-    return {
-      fontSize: 14,
-      color: screen === s ? '#222' : '#999',
-      fontWeight: screen === s ? 500 : 400,
-      background: 'transparent',
-      border: 'none',
-      padding: '6px 12px',
-      cursor: 'pointer',
-    }
-  }
-
   return (
-    <div style={pageStyle}>
-      <nav style={navStyle}>
-        {NAV_ORDER.map(s => (
-          <button key={s} style={navBtnStyle(s)} onClick={() => setScreen(s)}>
-            {NAV_LABELS[s]}
-          </button>
-        ))}
-      </nav>
-
-      <div style={{ minHeight: 600 }}>
-        {screen === 'play' && (
-          <PlayScreen activeScreen={screen} onNav={setScreen} />
-        )}
-        {screen === 'library' && (
-          <LibraryScreen
-            puzzles={library}
-            onPlay={handlePlay}
-            onEdit={() => setScreen('editor')}
-            onSaveGenerated={p => updateLibrary([...library, p])}
-            onDelete={id => updateLibrary(library.filter(p => p.id !== id))}
-          />
-        )}
-        {screen === 'editor' && (
-          <EditorScreen
-            onSave={handleSavePuzzle}
-            onBack={() => setScreen('library')}
-          />
-        )}
-      </div>
-    </div>
+    <>
+      {screen === 'play' && (
+        <PlayScreen
+          activeScreen={screen}
+          onNav={setScreen}
+          theme={theme}
+          setTheme={setTheme}
+          soundEnabled={soundEnabled}
+          setSoundEnabled={setSoundEnabled}
+        />
+      )}
+      {screen === 'library' && (
+        <LibraryScreen
+          puzzles={library}
+          onPlay={handlePlay}
+          onEdit={() => setScreen('editor')}
+          onSaveGenerated={p => updateLibrary([...library, p])}
+          onDelete={id => updateLibrary(library.filter(p => p.id !== id))}
+        />
+      )}
+      {screen === 'editor' && (
+        <EditorScreen
+          onSave={handleSavePuzzle}
+          onBack={() => setScreen('library')}
+        />
+      )}
+    </>
   )
 }
 

@@ -11,13 +11,11 @@ interface State {
   undos: number
   won: boolean
   optimalMoves: number
-  dragSrc: DragSrc | null
 }
 
 type Action =
   | { type: 'LOAD'; puzzle: Puzzle }
-  | { type: 'SET_DRAG'; src: DragSrc | null }
-  | { type: 'DROP'; target: DropTarget }
+  | { type: 'DROP'; src: DragSrc; target: DropTarget }
   | { type: 'UNDO' }
   | { type: 'RESET' }
   | { type: 'SET_WON'; won: boolean }
@@ -38,17 +36,10 @@ function reducer(state: State, action: Action): State {
         undos: 0,
         won: false,
         optimalMoves: action.puzzle.optimalMoves,
-        dragSrc: null,
       }
 
-    case 'SET_DRAG':
-      return { ...state, dragSrc: action.src }
-
     case 'DROP': {
-      const { dragSrc } = state
-      if (!dragSrc) return state
-
-      const { target } = action
+      const { src: dragSrc, target } = action
       const grid = deepCopyGrid(state.grid)
       const rack = [...state.rack]
       const snapshot = { grid: deepCopyGrid(state.grid), rack: [...state.rack] }
@@ -70,11 +61,10 @@ function reducer(state: State, action: Action): State {
           if (displaced) rack.push(displaced)
         } else {
           if (dragSrc.row === undefined || dragSrc.col === undefined) return state
-          grid[dragSrc.row][dragSrc.col] = grid[row][col] // null if empty, displaced tile if occupied
+          grid[dragSrc.row][dragSrc.col] = grid[row][col]
           grid[row][col] = tile
         }
       } else {
-        // GRID→RACK
         if (dragSrc.from === 'rack') return state
         if (dragSrc.row === undefined || dragSrc.col === undefined) return state
         grid[dragSrc.row][dragSrc.col] = null
@@ -87,7 +77,6 @@ function reducer(state: State, action: Action): State {
         rack,
         history: [...state.history, snapshot],
         moves: state.moves + 1,
-        dragSrc: null,
       }
     }
 
@@ -101,7 +90,6 @@ function reducer(state: State, action: Action): State {
         history: state.history.slice(0, -1),
         undos: state.undos + 1,
         won: false,
-        dragSrc: null,
       }
     }
 
@@ -116,7 +104,6 @@ function reducer(state: State, action: Action): State {
         moves: 0,
         undos: 0,
         won: false,
-        dragSrc: null,
       }
     }
 
@@ -133,7 +120,6 @@ const INIT: State = {
   undos: 0,
   won: false,
   optimalMoves: 0,
-  dragSrc: null,
 }
 
 export function usePlayState() {
@@ -143,12 +129,8 @@ export function usePlayState() {
     dispatch({ type: 'LOAD', puzzle: p })
   }, [])
 
-  const setDragSrc = useCallback((src: DragSrc | null) => {
-    dispatch({ type: 'SET_DRAG', src })
-  }, [])
-
-  const drop = useCallback((target: DropTarget) => {
-    dispatch({ type: 'DROP', target })
+  const drop = useCallback((src: DragSrc, target: DropTarget) => {
+    dispatch({ type: 'DROP', src, target })
   }, [])
 
   const undo = useCallback(() => {
@@ -170,8 +152,6 @@ export function usePlayState() {
     undos: state.undos,
     won: state.won,
     optimalMoves: state.optimalMoves,
-    dragSrc: state.dragSrc,
-    setDragSrc,
     drop,
     undo,
     reset,

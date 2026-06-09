@@ -1,14 +1,23 @@
 import { useEffect, useState, useCallback } from 'react'
 import { usePlayState } from '../hooks/usePlayState'
+import { useDrag } from '../hooks/useDrag'
 import { generatePuzzle } from '../lib/generator'
 import { validateGrid } from '../lib/validator'
 import { Board } from '../components/Board'
 import { Rack } from '../components/Rack'
+import { DragPreview } from '../components/DragPreview'
+import { SettingsPanel } from '../components/SettingsPanel'
 import type { Screen, Difficulty } from '../types'
+
+type ThemeOption = 'light' | 'dark' | 'system'
 
 interface Props {
   activeScreen: Screen
   onNav: (s: Screen) => void
+  theme: ThemeOption
+  setTheme: (t: ThemeOption) => void
+  soundEnabled: boolean
+  setSoundEnabled: (v: boolean) => void
 }
 
 const DIFFS: Difficulty[] = ['easy', 'medium', 'hard']
@@ -19,11 +28,55 @@ const NAV: { label: string; screen: Screen }[] = [
   { label: 'Editor', screen: 'editor' },
 ]
 
-export function PlayScreen({ activeScreen, onNav }: Props) {
-  const { grid, rack, moves, undos, won, optimalMoves, setDragSrc, drop, undo, reset, loadPuzzle, setWon } = usePlayState()
+function playSnap() {
+  const ctx = new AudioContext()
+  const buf = ctx.createBuffer(1, ctx.sampleRate * 0.06, ctx.sampleRate)
+  const data = buf.getChannelData(0)
+  for (let i = 0; i < data.length; i++) {
+    data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.008))
+  }
+  const src = ctx.createBufferSource()
+  const gain = ctx.createGain()
+  gain.gain.value = 0.18
+  src.buffer = buf
+  src.connect(gain)
+  gain.connect(ctx.destination)
+  src.start()
+}
+
+function findDropTarget(e: React.PointerEvent): { to: 'grid'; row: number; col: number } | { to: 'rack' } | null {
+  let el: Element | null = document.elementFromPoint(e.clientX, e.clientY)
+  while (el) {
+    const ds = (el as HTMLElement).dataset
+    if (ds.row !== undefined && ds.col !== undefined) {
+      return { to: 'grid', row: Number(ds.row), col: Number(ds.col) }
+    }
+    if (ds.rack) return { to: 'rack' }
+    el = el.parentElement
+  }
+  return null
+}
+
+function findHoveredCell(e: React.PointerEvent): { row: number; col: number } | null {
+  let el: Element | null = document.elementFromPoint(e.clientX, e.clientY)
+  while (el) {
+    const ds = (el as HTMLElement).dataset
+    if (ds.row !== undefined && ds.col !== undefined) {
+      return { row: Number(ds.row), col: Number(ds.col) }
+    }
+    el = el.parentElement
+  }
+  return null
+}
+
+export function PlayScreen({ activeScreen, onNav, theme, setTheme, soundEnabled, setSoundEnabled }: Props) {
+  const { grid, rack, moves, undos, won, optimalMoves, drop, undo, reset, loadPuzzle, setWon } = usePlayState()
+  const { drag, startDrag, moveDrag, endDrag } = useDrag()
 
   const [diff, setDiff] = useState<Difficulty>('easy')
   const [checkResult, setCheckResult] = useState<'valid' | 'invalid' | null>(null)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [hoveredCell, setHoveredCell] = useState<{ row: number; col: number } | null>(null)
 
   const generate = useCallback((d: Difficulty) => {
     const p = generatePuzzle(d)
@@ -35,123 +88,166 @@ export function PlayScreen({ activeScreen, onNav }: Props) {
     generate('easy')
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const handleDiff = (d: Difficulty) => {
-    setDiff(d)
-    generate(d)
-  }
+  const handleDiff = (d: Difficulty) => { setDiff(d); generate(d) }
 
   const handleCheck = () => {
-    if (rack.length > 0) {
-      setCheckResult('invalid')
-      return
-    }
+    if (rack.length > 0) { setCheckResult('invalid'); return }
     const ok = validateGrid(grid)
     setCheckResult(ok ? 'valid' : 'invalid')
     if (ok) setWon(true)
   }
 
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (!drag) return
+    moveDrag(e)
+    setHoveredCell(findHoveredCell(e))
+  }
+
+  const handlePointerUp = (e: React.PointerEvent) => {
+    if (!drag) return
+    const target = findDropTarget(e)
+    if (target) {
+      drop(drag.src, target)
+      if (target.to === 'grid' && soundEnabled) playSnap()
+    }
+    endDrag()
+    setHoveredCell(null)
+  }
+
   const loading = grid.length === 0
 
   return (
-    <div style={{ maxWidth: 720, margin: '0 auto', padding: '0 12px' }}>
-
-      {/* Nav bar */}
-      <div style={{ display: 'flex', gap: 4, padding: '12px 0' }}>
-        {NAV.map(n => (
+    <div
+      style={{ background: 'var(--bg)', minHeight: '100vh', transition: 'background 0.15s ease' }}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+    >
+      {/* Sticky nav */}
+      <nav style={{
+        background: 'var(--surface)',
+        borderBottom: '0.5px solid var(--border)',
+        padding: '0 20px',
+        height: 48,
+        display: 'flex',
+        alignItems: 'center',
+        position: 'sticky',
+        top: 0,
+        zIndex: 10,
+        transition: 'background 0.15s ease',
+      }}>
+        <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-primary)', flex: '0 0 80px' }}>Puzzikub</span>
+        <div style={{ display: 'flex', gap: 4, flex: 1, justifyContent: 'center' }}>
+          {NAV.map(n => (
+            <button
+              key={n.screen}
+              onClick={() => onNav(n.screen)}
+              style={{
+                padding: '5px 14px',
+                borderRadius: 20,
+                border: n.screen === activeScreen ? '0.5px solid #85B7EB' : '0.5px solid transparent',
+                background: n.screen === activeScreen ? '#E8F1FB' : 'transparent',
+                color: n.screen === activeScreen ? '#185FA5' : 'var(--text-secondary)',
+                fontWeight: n.screen === activeScreen ? 600 : 400,
+                fontSize: 14,
+                cursor: 'pointer',
+              }}
+            >
+              {n.label}
+            </button>
+          ))}
+        </div>
+        <div style={{ flex: '0 0 80px', display: 'flex', justifyContent: 'flex-end' }}>
           <button
-            key={n.screen}
-            onClick={() => onNav(n.screen)}
-            style={{
-              padding: '5px 14px',
-              borderRadius: 20,
-              border: n.screen === activeScreen ? '0.5px solid #85B7EB' : '0.5px solid transparent',
-              background: n.screen === activeScreen ? '#E8F1FB' : 'transparent',
-              color: n.screen === activeScreen ? '#185FA5' : '#bbb',
-              fontWeight: n.screen === activeScreen ? 600 : 400,
-              fontSize: 14,
-              cursor: 'pointer',
-            }}
-          >
-            {n.label}
-          </button>
-        ))}
-      </div>
+            onClick={() => setSettingsOpen(true)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: 'var(--text-secondary)', padding: 4 }}
+          >⚙</button>
+        </div>
+      </nav>
 
-      {/* Difficulty pills */}
-      <div style={{ display: 'flex', gap: 8, margin: '12px 0' }}>
-        {DIFFS.map(d => (
-          <button
-            key={d}
-            onClick={() => handleDiff(d)}
-            style={{
-              padding: '4px 14px',
-              borderRadius: 20,
-              border: d === diff ? '0.5px solid #85B7EB' : '0.5px solid #ccc',
-              background: d === diff ? '#E8F1FB' : '#f5f5f5',
-              color: d === diff ? '#185FA5' : '#555',
-              fontWeight: d === diff ? 600 : 400,
-              fontSize: 13,
-              cursor: 'pointer',
-            }}
-          >
-            {d}
-          </button>
-        ))}
-      </div>
+      <div style={{ maxWidth: 720, margin: '0 auto', padding: '0 20px' }}>
 
-      {loading ? (
-        <div style={{ color: '#999', fontSize: 13, padding: '20px 0' }}>Generating puzzle…</div>
-      ) : (
-        <>
-          {/* Stats */}
-          <div style={{ fontSize: 13, color: '#666', margin: '4px 0 8px' }}>
-            moves: {moves}&nbsp;&nbsp;optimal: {optimalMoves}&nbsp;&nbsp;rack: {rack.length}
-          </div>
+        {/* Difficulty pills */}
+        <div style={{ display: 'flex', gap: 8, margin: '16px 0' }}>
+          {DIFFS.map(d => (
+            <button
+              key={d}
+              onClick={() => handleDiff(d)}
+              style={{
+                padding: '4px 14px',
+                borderRadius: 20,
+                border: d === diff ? '0.5px solid #85B7EB' : '0.5px solid var(--border)',
+                background: d === diff ? '#E8F1FB' : 'var(--surface)',
+                color: d === diff ? '#185FA5' : 'var(--text-secondary)',
+                fontWeight: d === diff ? 600 : 400,
+                fontSize: 13,
+                cursor: 'pointer',
+                transition: 'background 0.15s ease',
+              }}
+            >
+              {d}
+            </button>
+          ))}
+        </div>
 
-          {/* Board centered */}
-          <div style={{ display: 'flex', justifyContent: 'center', margin: '16px 0' }}>
-            <Board
-              grid={grid}
-              onDragStart={setDragSrc}
-              onDragEnd={() => setDragSrc(null)}
-              onDrop={(row, col) => drop({ to: 'grid', row, col })}
+        {loading ? (
+          <div style={{ color: 'var(--text-secondary)', fontSize: 13, padding: '20px 0' }}>Generating puzzle…</div>
+        ) : (
+          <>
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '4px 0 12px' }}>
+              moves: {moves}&nbsp;&nbsp;optimal: {optimalMoves}&nbsp;&nbsp;rack: {rack.length}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'center', margin: '0 0 16px' }}>
+              <Board
+                grid={grid}
+                drag={drag}
+                hoveredCell={hoveredCell}
+                onPointerDown={startDrag}
+              />
+            </div>
+
+            <Rack
+              tiles={rack}
+              drag={drag}
+              onPointerDown={startDrag}
             />
-          </div>
 
-          {/* Rack */}
-          <Rack
-            tiles={rack}
-            onDragStart={setDragSrc}
-            onDragEnd={() => setDragSrc(null)}
-            onDrop={() => drop({ to: 'rack' })}
-          />
+            {won && (
+              <div style={{ color: '#27500A', fontWeight: 600, fontSize: 15, margin: '12px 0' }}>
+                cleared ✓&nbsp;&nbsp;you used {moves} moves&nbsp;&nbsp;·&nbsp;&nbsp;optimal: {optimalMoves}
+              </div>
+            )}
 
-          {/* Win message */}
-          {won && (
-            <div style={{ color: '#27500A', fontWeight: 600, fontSize: 15, margin: '10px 0' }}>
-              cleared ✓&nbsp;&nbsp;you used {moves} moves&nbsp;&nbsp;·&nbsp;&nbsp;optimal: {optimalMoves}
+            {checkResult === 'invalid' && !won && (
+              <div style={{ color: '#A32D2D', fontSize: 13, margin: '8px 0' }}>
+                {rack.length > 0 ? 'place all rack tiles first' : 'not valid — keep rearranging'}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: 20, margin: '12px 0' }}>
+              <HoverBtn onClick={handleCheck}>Check</HoverBtn>
+              <HoverBtn onClick={() => { undo(); setCheckResult(null) }} disabled={moves === 0}>Undo</HoverBtn>
+              <HoverBtn onClick={() => { reset(); setCheckResult(null) }}>Reset</HoverBtn>
+              <HoverBtn onClick={() => generate(diff)}>New</HoverBtn>
             </div>
-          )}
 
-          {/* Check result */}
-          {checkResult === 'invalid' && !won && (
-            <div style={{ color: '#A32D2D', fontSize: 13, margin: '6px 0' }}>
-              {rack.length > 0 ? 'place all rack tiles first' : 'not valid — keep rearranging'}
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 32 }}>
+              undos: {undos}
             </div>
-          )}
+          </>
+        )}
+      </div>
 
-          {/* Buttons */}
-          <div style={{ display: 'flex', gap: 20, margin: '12px 0' }}>
-            <HoverBtn onClick={handleCheck}>Check</HoverBtn>
-            <HoverBtn onClick={() => { undo(); setCheckResult(null) }} disabled={moves === 0}>Undo</HoverBtn>
-            <HoverBtn onClick={() => { reset(); setCheckResult(null) }}>Reset</HoverBtn>
-            <HoverBtn onClick={() => generate(diff)}>New</HoverBtn>
-          </div>
+      {drag && <DragPreview drag={drag} />}
 
-          <div style={{ fontSize: 12, color: '#aaa', marginBottom: 16 }}>
-            undos: {undos}
-          </div>
-        </>
+      {settingsOpen && (
+        <SettingsPanel
+          theme={theme}
+          setTheme={setTheme}
+          soundEnabled={soundEnabled}
+          setSoundEnabled={setSoundEnabled}
+          onClose={() => setSettingsOpen(false)}
+        />
       )}
     </div>
   )
@@ -167,11 +263,12 @@ function HoverBtn({ onClick, disabled = false, children }: {
     <button
       style={{
         fontSize: 13,
-        color: disabled ? '#ccc' : hov ? '#222' : '#555',
+        color: disabled ? 'var(--border)' : hov ? 'var(--text-primary)' : 'var(--text-secondary)',
         background: 'transparent',
         border: 'none',
         cursor: disabled ? 'default' : 'pointer',
         padding: 0,
+        transition: 'color 0.1s ease',
       }}
       disabled={disabled}
       onClick={onClick}

@@ -1,5 +1,5 @@
-import { useState } from 'react'
 import type { Tile, DragSrc } from '../types'
+import type { DragState } from '../hooks/useDrag'
 
 const NUM_COLOR: Record<Tile['c'], string> = {
   r: '#A32D2D',
@@ -10,68 +10,51 @@ const NUM_COLOR: Record<Tile['c'], string> = {
 
 interface Props {
   tiles: Tile[]
-  onDragStart: (src: DragSrc) => void
-  onDragEnd: () => void
-  onDrop: () => void
+  drag: DragState | null
+  onPointerDown: (e: React.PointerEvent<HTMLElement>, tile: Tile, src: DragSrc) => void
 }
 
-function suppressGhost(e: React.DragEvent) {
-  const ghost = document.createElement('div')
-  ghost.style.cssText = 'position:absolute;top:-9999px'
-  document.body.appendChild(ghost)
-  e.dataTransfer.setDragImage(ghost, 0, 0)
-  setTimeout(() => document.body.removeChild(ghost), 0)
-}
-
-export function Rack({ tiles, onDragStart, onDragEnd, onDrop }: Props) {
-  const [draggingIdx, setDraggingIdx] = useState<number | null>(null)
+export function Rack({ tiles, drag, onPointerDown }: Props) {
+  const draggingRackIdx = drag?.src.from === 'rack' ? drag.src.rackIdx : undefined
 
   return (
     <div>
-      <div style={{ fontSize: 11, color: '#999', marginBottom: 8 }}>rack</div>
+      <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 8 }}>rack</div>
       <div
+        data-rack="true"
         style={{
-          background: '#f0ede8',
+          background: 'var(--rack-bg)',
           borderRadius: 12,
           padding: 12,
           display: 'flex',
           gap: 8,
           flexWrap: 'wrap',
           minHeight: 70,
+          transition: 'background 0.15s ease',
         }}
-        onDragOver={e => e.preventDefault()}
-        onDrop={e => { e.preventDefault(); onDrop() }}
       >
         {tiles.map((tile, i) => (
           <div
             key={i}
-            draggable
             style={{
               width: 46,
               height: 58,
               borderRadius: 8,
-              background: '#fff',
-              boxShadow: '0 1px 3px rgba(0,0,0,0.12)',
+              background: 'var(--tile-bg)',
+              boxShadow: 'var(--tile-shadow)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               fontSize: 20,
               fontWeight: 500,
               color: NUM_COLOR[tile.c],
-              cursor: draggingIdx === i ? 'grabbing' : 'grab',
+              cursor: 'grab',
               userSelect: 'none',
-              boxSizing: 'border-box',
-              opacity: draggingIdx === i ? 0.4 : 1,
-              transform: draggingIdx === i ? 'scale(0.95)' : 'none',
+              opacity: draggingRackIdx === i ? 0.35 : 1,
+              transform: draggingRackIdx === i ? 'scale(0.93)' : 'none',
+              transition: 'background 0.15s ease, opacity 0.1s ease',
             }}
-            onDragStart={e => {
-              suppressGhost(e)
-              e.dataTransfer.effectAllowed = 'move'
-              e.dataTransfer.setData('text/plain', String(i))
-              setDraggingIdx(i)
-              onDragStart({ from: 'rack', rackIdx: i })
-            }}
-            onDragEnd={() => { setDraggingIdx(null); onDragEnd() }}
+            onPointerDown={e => onPointerDown(e, tile, { from: 'rack', rackIdx: i })}
           >
             {tile.n}
           </div>
