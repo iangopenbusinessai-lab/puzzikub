@@ -70,57 +70,53 @@ function buildGrid(sets: Tile[][]): Grid {
   return grid
 }
 
-// ── Stage 3: disrupt N tiles into rack ───────────────────────────────────────
+// ── Stage 3: generate extra tiles not in any solution set ────────────────────
 
-function disrupt(grid: Grid, sets: Tile[][], n: number): { grid: Grid; rack: Tile[] } {
-  const g = grid.map(row => [...row])
-  const rowCount = sets.map(s => s.length)
-
-  // Collect all filled positions in set rows only
-  const candidates: { row: number; col: number }[] = []
-  for (let r = 0; r < sets.length; r++) {
-    for (let c = 0; c < g[r].length; c++) {
-      if (g[r][c] !== null) candidates.push({ row: r, col: c })
+function generateExtraTiles(used: Set<string>, n: number): Tile[] {
+  const rack: Tile[] = []
+  const maxIter = n * 30
+  for (let i = 0; i < maxIter; i++) {
+    const t: Tile = { n: randomInt(1, 13), c: COLORS[randomInt(0, 3)] }
+    if (!used.has(tileKey(t))) {
+      rack.push(t)
+      used.add(tileKey(t))
+      if (rack.length === n) break
     }
   }
-
-  const rack: Tile[] = []
-  for (const { row, col } of shuffle(candidates)) {
-    if (rack.length >= n) break
-    // Safety: each set must keep at least 2 tiles after all removals
-    if (rowCount[row] - 1 < 2) continue
-    rack.push(g[row][col]!)
-    g[row][col] = null
-    rowCount[row]--
-  }
-
-  return { grid: g, rack: shuffle(rack) }
+  return rack
 }
 
 // ── Stage 4: assemble and return ─────────────────────────────────────────────
 
 export function generatePuzzle(diff: Difficulty): Puzzle | null {
   const numSets = diff === 'easy' ? 2 : diff === 'medium' ? 3 : randomInt(4, 5)
-  const numDisrupt =
-    diff === 'easy' ? randomInt(2, 3) :
-    diff === 'medium' ? randomInt(4, 6) :
-    randomInt(7, 10)
+  const numExtra =
+    diff === 'easy' ? randomInt(1, 2) :
+    diff === 'medium' ? randomInt(2, 4) :
+    randomInt(4, 6)
 
   for (let attempt = 0; attempt < 10; attempt++) {
     const sets = buildSets(numSets)
     if (!sets) continue
 
+    const used = new Set(sets.flat().map(tileKey))
     const grid = buildGrid(sets)
-    const { grid: puzzleGrid, rack } = disrupt(grid, sets, numDisrupt)
+    const rack = generateExtraTiles(used, numExtra)
 
     if (rack.length === 0) continue
+
+    const extraRows = 2
+    const extraGrid = [
+      ...grid,
+      ...Array.from({ length: extraRows }, () => Array(grid[0].length).fill(null)),
+    ]
 
     return {
       id: `gen_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       name: `${diff} puzzle`,
       diff,
-      grid: puzzleGrid,
-      rack,
+      grid: extraGrid,
+      rack: shuffle(rack),
       optimalMoves: rack.length,
       generated: true,
     }

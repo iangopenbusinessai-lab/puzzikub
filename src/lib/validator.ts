@@ -53,56 +53,42 @@ export function validateGrid(grid: Grid): boolean {
     }
   }
 
-  // Step 3 & 4: assign each tile to exactly one group (H or V)
-  // Prefer the longer group when both qualify; tied lengths → invalid; unassigned → invalid
-  const assign: ('h' | 'v' | null)[][] = Array.from({ length: rows }, () => Array(cols).fill(null))
-
+  // Step 3: every tile must belong to at least one group of length >= 3
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       if (!grid[r][c]) continue
-      const h = hLen[r][c]
-      const v = vLen[r][c]
-      const inH = h >= 3
-      const inV = v >= 3
-      if (inH && inV) {
-        if (h === v) return false   // tied — ambiguous, invalid
-        assign[r][c] = h > v ? 'h' : 'v'
-      } else if (inH) {
-        assign[r][c] = 'h'
-      } else if (inV) {
-        assign[r][c] = 'v'
-      } else {
-        return false                // isolated tile or pair — invalid
-      }
+      if (hLen[r][c] < 3 && vLen[r][c] < 3) return false
     }
   }
 
-  // Step 5–8: validate each contiguous sequence of H-assigned tiles per row
+  // Step 4: validate every H group of length >= 3
   for (let r = 0; r < rows; r++) {
     let c = 0
     while (c < cols) {
-      if (assign[r][c] !== 'h') { c++; continue }
+      if (!grid[r][c]) { c++; continue }
       let end = c
-      while (end + 1 < cols && assign[r][end + 1] === 'h') end++
+      while (end + 1 < cols && grid[r][end + 1]) end++
       const len = end - c + 1
-      if (len < 3) return false
-      const tiles = grid[r].slice(c, end + 1) as Tile[]
-      if (!isValidRun(tiles) && !isValidGroup(tiles)) return false
+      if (len >= 3) {
+        const tiles = grid[r].slice(c, end + 1) as Tile[]
+        if (!isValidRun(tiles) && !isValidGroup(tiles)) return false
+      }
       c = end + 1
     }
   }
 
-  // Step 5–8: validate each contiguous sequence of V-assigned tiles per col
+  // Step 5: validate every V group of length >= 3
   for (let c = 0; c < cols; c++) {
     let r = 0
     while (r < rows) {
-      if (assign[r][c] !== 'v') { r++; continue }
+      if (!grid[r][c]) { r++; continue }
       let end = r
-      while (end + 1 < rows && assign[end + 1][c] === 'v') end++
+      while (end + 1 < rows && grid[end + 1][c]) end++
       const len = end - r + 1
-      if (len < 3) return false
-      const tiles = grid.slice(r, end + 1).map(row => row[c]) as Tile[]
-      if (!isValidRun(tiles) && !isValidGroup(tiles)) return false
+      if (len >= 3) {
+        const tiles = grid.slice(r, end + 1).map(row => row[c]) as Tile[]
+        if (!isValidRun(tiles) && !isValidGroup(tiles)) return false
+      }
       r = end + 1
     }
   }
