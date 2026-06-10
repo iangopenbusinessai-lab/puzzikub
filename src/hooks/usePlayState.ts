@@ -1,5 +1,6 @@
 import { useReducer, useCallback } from 'react'
 import type { Tile, Grid, DragSrc, Puzzle } from '../types'
+import { validateGrid } from '../lib/validator'
 
 export type DropTarget = { to: 'grid'; row: number; col: number } | { to: 'rack' }
 
@@ -71,12 +72,14 @@ function reducer(state: State, action: Action): State {
         rack.push(tile)
       }
 
+      const newWon = rack.length === 0 && validateGrid(grid)
       return {
         ...state,
         grid,
         rack,
         history: [...state.history, snapshot],
         moves: state.moves + 1,
+        won: newWon,
       }
     }
 

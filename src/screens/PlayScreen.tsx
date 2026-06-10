@@ -2,7 +2,6 @@ import { useEffect, useState, useCallback } from 'react'
 import { usePlayState } from '../hooks/usePlayState'
 import { useDrag } from '../hooks/useDrag'
 import { generatePuzzle } from '../lib/generator'
-import { validateGrid } from '../lib/validator'
 import { Board } from '../components/Board'
 import { Rack } from '../components/Rack'
 import { DragPreview } from '../components/DragPreview'
@@ -70,18 +69,16 @@ function findHoveredCell(e: React.PointerEvent): { row: number; col: number } | 
 }
 
 export function PlayScreen({ activeScreen, onNav, theme, setTheme, soundEnabled, setSoundEnabled }: Props) {
-  const { grid, rack, moves, undos, won, optimalMoves, drop, undo, reset, loadPuzzle, setWon } = usePlayState()
+  const { grid, rack, moves, undos, won, optimalMoves, drop, undo, reset, loadPuzzle } = usePlayState()
   const { drag, startDrag, moveDrag, endDrag } = useDrag()
 
   const [diff, setDiff] = useState<Difficulty>('easy')
-  const [checkResult, setCheckResult] = useState<'valid' | 'invalid' | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [hoveredCell, setHoveredCell] = useState<{ row: number; col: number } | null>(null)
 
   const generate = useCallback((d: Difficulty) => {
     const p = generatePuzzle(d)
     if (p) loadPuzzle(p)
-    setCheckResult(null)
   }, [loadPuzzle])
 
   useEffect(() => {
@@ -89,13 +86,6 @@ export function PlayScreen({ activeScreen, onNav, theme, setTheme, soundEnabled,
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleDiff = (d: Difficulty) => { setDiff(d); generate(d) }
-
-  const handleCheck = () => {
-    if (rack.length > 0) { setCheckResult('invalid'); return }
-    const ok = validateGrid(grid)
-    setCheckResult(ok ? 'valid' : 'invalid')
-    if (ok) setWon(true)
-  }
 
   const handlePointerMove = (e: React.PointerEvent) => {
     if (!drag) return
@@ -213,21 +203,14 @@ export function PlayScreen({ activeScreen, onNav, theme, setTheme, soundEnabled,
             />
 
             {won && (
-              <div style={{ color: '#27500A', fontWeight: 600, fontSize: 15, margin: '12px 0' }}>
-                cleared ✓&nbsp;&nbsp;you used {moves} moves&nbsp;&nbsp;·&nbsp;&nbsp;optimal: {optimalMoves}
-              </div>
-            )}
-
-            {checkResult === 'invalid' && !won && (
-              <div style={{ color: '#A32D2D', fontSize: 13, margin: '8px 0' }}>
-                {rack.length > 0 ? 'place all rack tiles first' : 'not valid — keep rearranging'}
+              <div style={{ color: '#27500A', fontSize: 13, margin: '12px 0' }}>
+                cleared ✓&nbsp;&nbsp;{moves} moves&nbsp;&nbsp;·&nbsp;&nbsp;optimal: {optimalMoves}
               </div>
             )}
 
             <div style={{ display: 'flex', gap: 20, margin: '12px 0' }}>
-              <HoverBtn onClick={handleCheck}>Check</HoverBtn>
-              <HoverBtn onClick={() => { undo(); setCheckResult(null) }} disabled={moves === 0}>Undo</HoverBtn>
-              <HoverBtn onClick={() => { reset(); setCheckResult(null) }}>Reset</HoverBtn>
+              <HoverBtn onClick={undo} disabled={moves === 0}>Undo</HoverBtn>
+              <HoverBtn onClick={reset}>Reset</HoverBtn>
               <HoverBtn onClick={() => generate(diff)}>New</HoverBtn>
             </div>
 
