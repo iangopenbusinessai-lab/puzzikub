@@ -13,9 +13,19 @@ interface Props {
   drag: DragState | null
   hoveredCell: { row: number; col: number } | null
   onPointerDown: (e: React.PointerEvent<HTMLElement>, tile: Tile, src: DragSrc) => void
+  invalidCells: Set<string>
 }
 
-export function Board({ grid, drag, hoveredCell, onPointerDown }: Props) {
+function suppressDragGhost(e: React.DragEvent<HTMLDivElement>) {
+  e.dataTransfer.effectAllowed = 'move'
+  const ghost = document.createElement('div')
+  ghost.style.cssText = 'width:1px;height:1px;position:fixed;top:0;left:0;opacity:0'
+  document.body.appendChild(ghost)
+  e.dataTransfer.setDragImage(ghost, 0, 0)
+  requestAnimationFrame(() => document.body.removeChild(ghost))
+}
+
+export function Board({ grid, drag, hoveredCell, onPointerDown, invalidCells }: Props) {
   const rows = grid.length
   const cols = grid[0]?.length ?? 0
   if (rows === 0 || cols === 0) return null
@@ -31,6 +41,7 @@ export function Board({ grid, drag, hoveredCell, onPointerDown }: Props) {
       const key = `${r}-${c}`
       const hovered = hoveredCell?.row === r && hoveredCell?.col === c
       const isDraggingSrc = srcRow === r && srcCol === c
+      const isInvalid = invalidCells.has(`${r},${c}`)
 
       if (tile) {
         cells.push(
@@ -38,12 +49,15 @@ export function Board({ grid, drag, hoveredCell, onPointerDown }: Props) {
             key={key}
             data-row={r}
             data-col={c}
+            draggable
+            onDragStart={suppressDragGhost}
             style={{
               width: 46,
               height: 58,
               borderRadius: 8,
-              background: 'var(--tile-bg)',
-              boxShadow: 'var(--tile-shadow)',
+              background: isInvalid ? '#FFF0F0' : 'var(--tile-bg)',
+              boxShadow: isInvalid ? 'none' : 'var(--tile-shadow)',
+              border: isInvalid ? '1px solid #F09595' : 'none',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -57,6 +71,7 @@ export function Board({ grid, drag, hoveredCell, onPointerDown }: Props) {
               outline: hovered && !isDraggingSrc ? '2px solid #378ADD' : 'none',
               outlineOffset: -2,
               transition: 'background 0.15s ease, opacity 0.1s ease',
+              boxSizing: 'border-box',
             }}
             onPointerDown={e => onPointerDown(e, tile, { from: 'grid', row: r, col: c })}
           >

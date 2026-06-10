@@ -14,6 +14,15 @@ interface Props {
   onPointerDown: (e: React.PointerEvent<HTMLElement>, tile: Tile, src: DragSrc) => void
 }
 
+function suppressDragGhost(e: React.DragEvent<HTMLDivElement>) {
+  e.dataTransfer.effectAllowed = 'move'
+  const ghost = document.createElement('div')
+  ghost.style.cssText = 'width:1px;height:1px;position:fixed;top:0;left:0;opacity:0'
+  document.body.appendChild(ghost)
+  e.dataTransfer.setDragImage(ghost, 0, 0)
+  requestAnimationFrame(() => document.body.removeChild(ghost))
+}
+
 export function Rack({ tiles, drag, onPointerDown }: Props) {
   const draggingRackIdx = drag?.src.from === 'rack' ? drag.src.rackIdx : undefined
 
@@ -36,6 +45,8 @@ export function Rack({ tiles, drag, onPointerDown }: Props) {
         {tiles.map((tile, i) => (
           <div
             key={i}
+            draggable
+            onDragStart={suppressDragGhost}
             style={{
               width: 46,
               height: 58,

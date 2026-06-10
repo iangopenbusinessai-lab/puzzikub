@@ -98,6 +98,16 @@ function legalExtensions(sets: Tile[][], used: Set<string>): Tile[] {
         const t: Tile = { n: maxN + 1, c: color }
         if (!used.has(tileKey(t))) candidates.push(t)
       }
+      if (minN - 2 >= 1) {
+        const lo2: Tile = { n: minN - 2, c: color }
+        const lo1: Tile = { n: minN - 1, c: color }
+        if (!used.has(tileKey(lo2)) && !used.has(tileKey(lo1))) candidates.push(lo2)
+      }
+      if (maxN + 2 <= 13) {
+        const hi1: Tile = { n: maxN + 1, c: color }
+        const hi2: Tile = { n: maxN + 2, c: color }
+        if (!used.has(tileKey(hi1)) && !used.has(tileKey(hi2))) candidates.push(hi2)
+      }
     }
 
     if (isGroup) {
@@ -119,11 +129,11 @@ function legalExtensions(sets: Tile[][], used: Set<string>): Tile[] {
 // ── Stage 4: assemble and return ─────────────────────────────────────────────
 
 export function generatePuzzle(diff: Difficulty): Puzzle | null {
-  const numSets = diff === 'easy' ? 2 : diff === 'medium' ? 3 : randomInt(4, 5)
+  const numSets = diff === 'easy' ? 2 : diff === 'medium' ? 3 : randomInt(4, 6)
   const numExtra =
-    diff === 'easy' ? randomInt(1, 2) :
-    diff === 'medium' ? randomInt(2, 4) :
-    randomInt(4, 6)
+    diff === 'easy' ? randomInt(2, 3) :
+    diff === 'medium' ? randomInt(3, 5) :
+    randomInt(5, 8)
 
   for (let attempt = 0; attempt < 10; attempt++) {
     const sets = buildSets(numSets)
@@ -146,6 +156,7 @@ export function generatePuzzle(diff: Difficulty): Puzzle | null {
       }
     }
     if (rack.length === 0) continue
+    if (rack.length < numExtra * 0.75) continue
 
     const extraRows = 2
     const extraGrid = [

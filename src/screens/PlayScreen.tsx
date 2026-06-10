@@ -6,6 +6,7 @@ import { Board } from '../components/Board'
 import { Rack } from '../components/Rack'
 import { DragPreview } from '../components/DragPreview'
 import { SettingsPanel } from '../components/SettingsPanel'
+import { Tutorial } from '../components/Tutorial'
 import type { Screen, Difficulty } from '../types'
 
 type ThemeOption = 'light' | 'dark' | 'system'
@@ -69,11 +70,19 @@ function findHoveredCell(e: React.PointerEvent): { row: number; col: number } | 
 }
 
 export function PlayScreen({ activeScreen, onNav, theme, setTheme, soundEnabled, setSoundEnabled }: Props) {
-  const { grid, rack, moves, undos, won, optimalMoves, drop, undo, reset, loadPuzzle } = usePlayState()
+  const { grid, rack, moves, undos, won, optimalMoves, invalidCells, drop, undo, reset, loadPuzzle } = usePlayState()
   const { drag, startDrag, moveDrag, endDrag } = useDrag()
 
   const [diff, setDiff] = useState<Difficulty>('easy')
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [showTutorial, setShowTutorial] = useState(
+    () => !localStorage.getItem('puzzikub_seen_tutorial')
+  )
+
+  function dismissTutorial() {
+    localStorage.setItem('puzzikub_seen_tutorial', '1')
+    setShowTutorial(false)
+  }
   const [hoveredCell, setHoveredCell] = useState<{ row: number; col: number } | null>(null)
 
   const generate = useCallback((d: Difficulty) => {
@@ -146,7 +155,11 @@ export function PlayScreen({ activeScreen, onNav, theme, setTheme, soundEnabled,
             </button>
           ))}
         </div>
-        <div style={{ flex: '0 0 80px', display: 'flex', justifyContent: 'flex-end' }}>
+        <div style={{ flex: '0 0 80px', display: 'flex', justifyContent: 'flex-end', gap: 4 }}>
+          <button
+            onClick={() => setShowTutorial(true)}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, color: 'var(--text-secondary)', padding: 4 }}
+          >?</button>
           <button
             onClick={() => setSettingsOpen(true)}
             style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: 'var(--text-secondary)', padding: 4 }}
@@ -193,6 +206,7 @@ export function PlayScreen({ activeScreen, onNav, theme, setTheme, soundEnabled,
                 drag={drag}
                 hoveredCell={hoveredCell}
                 onPointerDown={startDrag}
+                invalidCells={invalidCells}
               />
             </div>
 
@@ -232,6 +246,8 @@ export function PlayScreen({ activeScreen, onNav, theme, setTheme, soundEnabled,
           onClose={() => setSettingsOpen(false)}
         />
       )}
+
+      {showTutorial && <Tutorial onDismiss={dismissTutorial} />}
     </div>
   )
 }
