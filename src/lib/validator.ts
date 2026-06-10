@@ -23,10 +23,11 @@ export function validateGrid(grid: Grid): boolean {
   const rows = grid.length
   const cols = grid[0]?.length ?? 0
 
-  // Must have at least one tile
   if (!grid.some(row => row.some(t => t !== null))) return false
 
-  // Step 1 & 2: compute maximal H and V run lengths for every cell
+  // Steps 1 & 2: compute H and V group lengths for every occupied cell.
+  // A tile in a vertical pair (vLen=2) is fine as long as its H group
+  // covers it (hLen>=3); we only fail it in Step 7 if BOTH are < 3.
   const hLen: number[][] = Array.from({ length: rows }, () => Array(cols).fill(0))
   for (let r = 0; r < rows; r++) {
     let c = 0
@@ -53,15 +54,9 @@ export function validateGrid(grid: Grid): boolean {
     }
   }
 
-  // Step 3: every tile must belong to at least one group of length >= 3
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      if (!grid[r][c]) continue
-      if (hLen[r][c] < 3 && vLen[r][c] < 3) return false
-    }
-  }
-
-  // Step 4: validate every H group of length >= 3
+  // Step 5: validate every H group of length >= 3.
+  // H groups of length 1 or 2 are ignored here; they are accepted iff the
+  // tile is also covered by a V group of length >= 3 (checked in Step 7).
   for (let r = 0; r < rows; r++) {
     let c = 0
     while (c < cols) {
@@ -77,7 +72,10 @@ export function validateGrid(grid: Grid): boolean {
     }
   }
 
-  // Step 5: validate every V group of length >= 3
+  // Step 6: validate every V group of length >= 3.
+  // V groups of length 1 or 2 (e.g. tiles from two separate H sets that
+  // happen to share a column) are not validated — they are only invalid if
+  // the tile has no H group of length >= 3 either (Step 7).
   for (let c = 0; c < cols; c++) {
     let r = 0
     while (r < rows) {
@@ -90,6 +88,16 @@ export function validateGrid(grid: Grid): boolean {
         if (!isValidRun(tiles) && !isValidGroup(tiles)) return false
       }
       r = end + 1
+    }
+  }
+
+  // Step 7: every tile must be covered by at least one group of length >= 3.
+  // A tile is fine in a horizontal pair (hLen=2) as long as vLen >= 3, and
+  // vice-versa. Only isolated tiles or tiles in two pairs are invalid.
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      if (!grid[r][c]) continue
+      if (hLen[r][c] < 3 && vLen[r][c] < 3) return false
     }
   }
 
