@@ -70,20 +70,50 @@ function buildGrid(sets: Tile[][]): Grid {
   return grid
 }
 
-// ── Stage 3: generate extra tiles not in any solution set ────────────────────
+// ── Stage 3: find tiles that legally extend existing sets ────────────────────
 
-function generateExtraTiles(used: Set<string>, n: number): Tile[] {
-  const rack: Tile[] = []
-  const maxIter = n * 30
-  for (let i = 0; i < maxIter; i++) {
-    const t: Tile = { n: randomInt(1, 13), c: COLORS[randomInt(0, 3)] }
-    if (!used.has(tileKey(t))) {
-      rack.push(t)
-      used.add(tileKey(t))
-      if (rack.length === n) break
+function legalExtensions(sets: Tile[][], used: Set<string>): Tile[] {
+  const candidates: Tile[] = []
+
+  for (const set of sets) {
+    const color = set[0].c
+    const nums = set.map(t => t.n).sort((a, b) => a - b)
+    const isRun =
+      set.every(t => t.c === color) &&
+      nums.every((n, i) => i === 0 || n === nums[i - 1] + 1)
+
+    const num = set[0].n
+    const isGroup =
+      set.every(t => t.n === num) &&
+      new Set(set.map(t => t.c)).size === set.length
+
+    if (isRun) {
+      const minN = nums[0]
+      const maxN = nums[nums.length - 1]
+      if (minN - 1 >= 1) {
+        const t: Tile = { n: minN - 1, c: color }
+        if (!used.has(tileKey(t))) candidates.push(t)
+      }
+      if (maxN + 1 <= 13) {
+        const t: Tile = { n: maxN + 1, c: color }
+        if (!used.has(tileKey(t))) candidates.push(t)
+      }
+    }
+
+    if (isGroup) {
+      const existingColors = set.map(t => t.c)
+      if (existingColors.length < 4) {
+        for (const c of COLORS) {
+          if (!existingColors.includes(c)) {
+            const t: Tile = { n: num, c }
+            if (!used.has(tileKey(t))) candidates.push(t)
+          }
+        }
+      }
     }
   }
-  return rack
+
+  return candidates
 }
 
 // ── Stage 4: assemble and return ─────────────────────────────────────────────
@@ -101,8 +131,20 @@ export function generatePuzzle(diff: Difficulty): Puzzle | null {
 
     const used = new Set(sets.flat().map(tileKey))
     const grid = buildGrid(sets)
-    const rack = generateExtraTiles(used, numExtra)
 
+    const extensions = legalExtensions(sets, new Set(used))
+    if (extensions.length === 0) continue
+
+    const rack: Tile[] = []
+    const usedCopy = new Set(used)
+    const shuffledExt = shuffle(extensions)
+    for (const t of shuffledExt) {
+      if (rack.length >= numExtra) break
+      if (!usedCopy.has(tileKey(t))) {
+        rack.push(t)
+        usedCopy.add(tileKey(t))
+      }
+    }
     if (rack.length === 0) continue
 
     const extraRows = 2
