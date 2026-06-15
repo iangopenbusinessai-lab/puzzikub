@@ -32,13 +32,13 @@ export function Board({ grid, drag, hoveredCell, onPointerDown, invalidCells }: 
 
   const srcRow = drag?.src.from === 'grid' ? drag.src.row : undefined
   const srcCol = drag?.src.from === 'grid' ? drag.src.col : undefined
+  const shakeKey = [...invalidCells].find(k => k.startsWith('__v:')) ?? '__v:0'
 
   const cells = []
 
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       const tile = grid[r][c]
-      const key = `${r}-${c}`
       const hovered = hoveredCell?.row === r && hoveredCell?.col === c
       const isDraggingSrc = srcRow === r && srcCol === c
       const isInvalid = invalidCells.has(`${r},${c}`)
@@ -46,7 +46,8 @@ export function Board({ grid, drag, hoveredCell, onPointerDown, invalidCells }: 
       if (tile) {
         cells.push(
           <div
-            key={key}
+            key={isInvalid ? `${r}-${c}-${shakeKey}` : `${r}-${c}`}
+            className={isInvalid ? 'tile-invalid' : ''}
             data-row={r}
             data-col={c}
             draggable
@@ -56,8 +57,7 @@ export function Board({ grid, drag, hoveredCell, onPointerDown, invalidCells }: 
               height: 58,
               borderRadius: 8,
               background: isInvalid ? '#FFF0F0' : 'var(--tile-bg)',
-              boxShadow: isInvalid ? 'none' : 'var(--tile-shadow)',
-              border: isInvalid ? '1px solid #F09595' : 'none',
+              boxShadow: isInvalid ? '0 0 0 1.5px #F09595' : 'var(--tile-shadow)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',

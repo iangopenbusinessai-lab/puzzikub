@@ -1,5 +1,76 @@
 import type { Tile, Grid } from '../types'
 
+export function getInvalidCells(grid: Grid): Set<string> {
+  const rows = grid.length
+  const cols = grid[0]?.length ?? 0
+  const invalid = new Set<string>()
+
+  if (!grid.some(row => row.some(t => t !== null))) return invalid
+
+  type Group = { tiles: Tile[]; len: number; cells: { r: number; c: number }[] }
+
+  const hGroups: Group[] = []
+  const hOf: (Group | null)[][] = Array.from({ length: rows }, () => Array(cols).fill(null))
+
+  for (let r = 0; r < rows; r++) {
+    let c = 0
+    while (c < cols) {
+      if (!grid[r][c]) { c++; continue }
+      let end = c
+      while (end + 1 < cols && grid[r][end + 1]) end++
+      const tiles: Tile[] = []
+      const cells: { r: number; c: number }[] = []
+      for (let i = c; i <= end; i++) { tiles.push(grid[r][i] as Tile); cells.push({ r, c: i }) }
+      const g: Group = { tiles, len: tiles.length, cells }
+      hGroups.push(g)
+      for (let i = c; i <= end; i++) hOf[r][i] = g
+      c = end + 1
+    }
+  }
+
+  const vGroups: Group[] = []
+  const vOf: (Group | null)[][] = Array.from({ length: rows }, () => Array(cols).fill(null))
+
+  for (let c = 0; c < cols; c++) {
+    let r = 0
+    while (r < rows) {
+      if (!grid[r][c]) { r++; continue }
+      let end = r
+      while (end + 1 < rows && grid[end + 1][c]) end++
+      const tiles: Tile[] = []
+      const cells: { r: number; c: number }[] = []
+      for (let i = r; i <= end; i++) { tiles.push(grid[i][c] as Tile); cells.push({ r: i, c }) }
+      const g: Group = { tiles, len: tiles.length, cells }
+      vGroups.push(g)
+      for (let i = r; i <= end; i++) vOf[i][c] = g
+      r = end + 1
+    }
+  }
+
+  for (const g of hGroups) {
+    if (g.len >= 3 && !isValidRun(g.tiles) && !isValidGroup(g.tiles)) {
+      for (const { r, c } of g.cells) invalid.add(`${r},${c}`)
+    }
+  }
+
+  for (const g of vGroups) {
+    if (g.len >= 3 && !isValidRun(g.tiles) && !isValidGroup(g.tiles)) {
+      for (const { r, c } of g.cells) invalid.add(`${r},${c}`)
+    }
+  }
+
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      if (!grid[r][c]) continue
+      const hLen = hOf[r][c]?.len ?? 0
+      const vLen = vOf[r][c]?.len ?? 0
+      if (hLen < 3 && vLen < 3) invalid.add(`${r},${c}`)
+    }
+  }
+
+  return invalid
+}
+
 export function isValidRun(tiles: Tile[]): boolean {
   if (tiles.length < 3) return false
   const color = tiles[0].c

@@ -1,6 +1,6 @@
 import { useReducer, useCallback } from 'react'
 import type { Tile, Grid, DragSrc, Puzzle } from '../types'
-import { validateGrid, isValidRun, isValidGroup } from '../lib/validator'
+import { validateGrid, getInvalidCells } from '../lib/validator'
 
 export type DropTarget = { to: 'grid'; row: number; col: number } | { to: 'rack' }
 
@@ -24,83 +24,6 @@ type Action =
 
 function deepCopyGrid(g: Grid): Grid {
   return g.map(row => [...row])
-}
-
-function findInvalidCells(grid: Grid): Set<string> {
-  const rows = grid.length
-  const cols = grid[0]?.length ?? 0
-  const invalid = new Set<string>()
-
-  const hLen: number[][] = Array.from({ length: rows }, () => Array(cols).fill(0))
-  for (let r = 0; r < rows; r++) {
-    let c = 0
-    while (c < cols) {
-      if (!grid[r][c]) { c++; continue }
-      let end = c
-      while (end + 1 < cols && grid[r][end + 1]) end++
-      const len = end - c + 1
-      for (let i = c; i <= end; i++) hLen[r][i] = len
-      c = end + 1
-    }
-  }
-
-  const vLen: number[][] = Array.from({ length: rows }, () => Array(cols).fill(0))
-  for (let c = 0; c < cols; c++) {
-    let r = 0
-    while (r < rows) {
-      if (!grid[r][c]) { r++; continue }
-      let end = r
-      while (end + 1 < rows && grid[end + 1][c]) end++
-      const len = end - r + 1
-      for (let i = r; i <= end; i++) vLen[i][c] = len
-      r = end + 1
-    }
-  }
-
-  type Assign = 'h' | 'v' | 'none'
-  const assign: Assign[][] = Array.from({ length: rows }, () => Array(cols).fill('none') as Assign[])
-
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      if (!grid[r][c]) continue
-      const h = hLen[r][c], v = vLen[r][c]
-      if (h < 3 && v < 3) {
-        invalid.add(`${r},${c}`)
-      } else {
-        assign[r][c] = h >= v ? 'h' : 'v'
-      }
-    }
-  }
-
-  for (let r = 0; r < rows; r++) {
-    let c = 0
-    while (c < cols) {
-      if (assign[r][c] !== 'h') { c++; continue }
-      let end = c
-      while (end + 1 < cols && assign[r][end + 1] === 'h') end++
-      const tiles = grid[r].slice(c, end + 1) as Tile[]
-      if (tiles.length < 3 || (!isValidRun(tiles) && !isValidGroup(tiles))) {
-        for (let i = c; i <= end; i++) invalid.add(`${r},${i}`)
-      }
-      c = end + 1
-    }
-  }
-
-  for (let c = 0; c < cols; c++) {
-    let r = 0
-    while (r < rows) {
-      if (assign[r][c] !== 'v') { r++; continue }
-      let end = r
-      while (end + 1 < rows && assign[end + 1][c] === 'v') end++
-      const tiles = grid.slice(r, end + 1).map(row => row[c]) as Tile[]
-      if (tiles.length < 3 || (!isValidRun(tiles) && !isValidGroup(tiles))) {
-        for (let i = r; i <= end; i++) invalid.add(`${i},${c}`)
-      }
-      r = end + 1
-    }
-  }
-
-  return invalid
 }
 
 function reducer(state: State, action: Action): State {
@@ -152,8 +75,11 @@ function reducer(state: State, action: Action): State {
       }
 
       const newWon = rack.length === 0 && validateGrid(grid)
-      const newInvalidCells =
-        rack.length === 0 && !newWon ? findInvalidCells(grid) : new Set<string>()
+      let newInvalidCells = new Set<string>()
+      if (rack.length === 0 && !newWon) {
+        newInvalidCells = getInvalidCells(grid)
+        newInvalidCells.add(`__v:${Date.now()}`)
+      }
       return {
         ...state,
         grid,

@@ -18,109 +18,177 @@ export function SettingsPanel({ theme, setTheme, soundEnabled, setSoundEnabled, 
   return (
     <>
       <div
-        style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.2)', zIndex: 99 }}
+        style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.25)', zIndex: 99 }}
         onClick={onClose}
       />
+
       <div style={{
         position: 'fixed',
         right: 0,
         top: 0,
-        height: '100%',
-        width: 280,
+        height: '100vh',
+        width: 300,
         background: 'var(--surface)',
         boxShadow: '-4px 0 24px rgba(0,0,0,0.12)',
         zIndex: 100,
         display: 'flex',
         flexDirection: 'column',
+        transition: 'transform 0.2s ease',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 20px 16px' }}>
-          <span style={{ fontSize: 16, fontWeight: 500, color: 'var(--text-primary)' }}>Settings</span>
+
+        {/* Header */}
+        <div style={{ height: 56, display: 'flex', alignItems: 'center', padding: '0 20px', flexShrink: 0 }}>
+          <span style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-primary)', flex: 1 }}>
+            Settings
+          </span>
           <button
             onClick={onClose}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: 'var(--text-secondary)', lineHeight: 1, padding: 4 }}
+            style={{
+              width: 28,
+              height: 28,
+              borderRadius: '50%',
+              background: 'var(--cell-empty)',
+              border: 'none',
+              fontSize: 16,
+              cursor: 'pointer',
+              color: 'var(--text-secondary)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 0,
+              lineHeight: 1,
+            }}
           >×</button>
         </div>
 
-        <Divider />
+        {/* Scrollable content */}
+        <div style={{
+          flex: 1,
+          overflowY: 'auto',
+          padding: 20,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 24,
+        }}>
 
-        <Section label="Appearance">
-          <div style={{ display: 'flex', gap: 4 }}>
-            {THEME_OPTIONS.map(opt => (
-              <button
-                key={opt.value}
-                onClick={() => setTheme(opt.value)}
-                style={{
-                  padding: '6px 14px',
-                  borderRadius: 8,
-                  border: 'none',
-                  cursor: 'pointer',
-                  fontSize: 13,
-                  background: theme === opt.value ? 'var(--grid-bg)' : 'transparent',
-                  color: theme === opt.value ? 'var(--text-primary)' : 'var(--text-secondary)',
-                  fontWeight: theme === opt.value ? 500 : 400,
-                }}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
-        </Section>
-
-        <Divider />
-
-        <Section label="Sound">
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ fontSize: 13, color: 'var(--text-primary)' }}>Snap sound</span>
-            <div
-              onClick={() => setSoundEnabled(!soundEnabled)}
-              style={{
-                width: 44,
-                height: 24,
-                borderRadius: 12,
-                background: soundEnabled ? '#185FA5' : 'var(--cell-empty)',
-                position: 'relative',
-                cursor: 'pointer',
-                transition: 'background 0.2s',
-                flexShrink: 0,
-              }}
-            >
-              <div style={{
-                position: 'absolute',
-                top: 2,
-                left: soundEnabled ? 22 : 2,
-                width: 20,
-                height: 20,
-                borderRadius: '50%',
-                background: '#fff',
-                transition: 'left 0.2s',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-              }} />
+          {/* Appearance */}
+          <div>
+            <SectionLabel>Appearance</SectionLabel>
+            <div style={{
+              display: 'flex',
+              border: '0.5px solid var(--border)',
+              borderRadius: 10,
+              overflow: 'hidden',
+            }}>
+              {THEME_OPTIONS.map(opt => {
+                const active = theme === opt.value
+                return (
+                  <button
+                    key={opt.value}
+                    onClick={() => setTheme(opt.value)}
+                    style={{
+                      flex: 1,
+                      padding: 8,
+                      border: 'none',
+                      fontSize: 13,
+                      cursor: 'pointer',
+                      background: active ? 'var(--cell-empty)' : 'var(--surface)',
+                      color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
+                      fontWeight: active ? 500 : 400,
+                    }}
+                  >
+                    {opt.label}
+                  </button>
+                )
+              })}
             </div>
           </div>
-        </Section>
 
-        <Divider />
+          {/* Sound */}
+          <div>
+            <SectionLabel>Sound</SectionLabel>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: 13, color: 'var(--text-primary)' }}>Snap sound</span>
+              <label style={{ cursor: 'pointer', display: 'inline-block', position: 'relative' }}>
+                <input
+                  type="checkbox"
+                  checked={soundEnabled}
+                  onChange={e => setSoundEnabled(e.target.checked)}
+                  style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }}
+                />
+                <div style={{
+                  width: 40,
+                  height: 24,
+                  borderRadius: 12,
+                  background: soundEnabled ? '#34C759' : 'var(--cell-empty)',
+                  transition: 'background 0.2s',
+                  position: 'relative',
+                }}>
+                  <div style={{
+                    position: 'absolute',
+                    top: 2,
+                    width: 20,
+                    height: 20,
+                    borderRadius: '50%',
+                    background: '#fff',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                    transform: soundEnabled ? 'translateX(16px)' : 'translateX(2px)',
+                    transition: 'transform 0.2s',
+                  }} />
+                </div>
+              </label>
+            </div>
+          </div>
 
-        <Section label="About">
-          <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>Puzzikub</div>
-          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>A clear-your-rack puzzle game</div>
-        </Section>
+          {/* Stats */}
+          <div>
+            <SectionLabel>Stats</SectionLabel>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <StatRow label="Puzzles played" value={0} />
+              <StatRow label="Puzzles solved" value={0} />
+              <StatRow label="Best streak" value={0} />
+            </div>
+          </div>
+
+        </div>
+
+        {/* Footer */}
+        <div style={{
+          padding: 20,
+          borderTop: '0.5px solid var(--border)',
+          textAlign: 'center',
+          fontSize: 11,
+          color: 'var(--text-secondary)',
+          flexShrink: 0,
+        }}>
+          Puzzikub v0.1
+        </div>
+
       </div>
     </>
   )
 }
 
-function Divider() {
-  return <hr style={{ border: 'none', borderTop: '0.5px solid var(--border)', margin: 0 }} />
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div style={{
+      fontSize: 11,
+      fontWeight: 500,
+      textTransform: 'uppercase',
+      letterSpacing: '0.8px',
+      color: 'var(--text-secondary)',
+      marginBottom: 10,
+    }}>
+      {children}
+    </div>
+  )
 }
 
-function Section({ label, children }: { label: string; children: React.ReactNode }) {
+function StatRow({ label, value }: { label: string; value: number }) {
   return (
-    <div style={{ padding: '16px 20px' }}>
-      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: 12 }}>
-        {label}
-      </div>
-      {children}
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{label}</span>
+      <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>{value}</span>
     </div>
   )
 }
