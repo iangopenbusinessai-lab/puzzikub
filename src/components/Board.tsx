@@ -16,14 +16,6 @@ interface Props {
   invalidCells: Set<string>
 }
 
-function suppressDragGhost(e: React.DragEvent<HTMLDivElement>) {
-  e.dataTransfer.effectAllowed = 'move'
-  const ghost = document.createElement('div')
-  ghost.style.cssText = 'width:1px;height:1px;position:fixed;top:0;left:0;opacity:0'
-  document.body.appendChild(ghost)
-  e.dataTransfer.setDragImage(ghost, 0, 0)
-  requestAnimationFrame(() => document.body.removeChild(ghost))
-}
 
 export function Board({ grid, drag, hoveredCell, onPointerDown, invalidCells }: Props) {
   const rows = grid.length
@@ -50,8 +42,7 @@ export function Board({ grid, drag, hoveredCell, onPointerDown, invalidCells }: 
             className={isInvalid ? 'tile-invalid' : ''}
             data-row={r}
             data-col={c}
-            draggable
-            onDragStart={suppressDragGhost}
+            onDragStart={e => e.preventDefault()}
             style={{
               width: 46,
               height: 58,
