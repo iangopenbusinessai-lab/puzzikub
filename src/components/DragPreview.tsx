@@ -3,11 +3,12 @@ import { NUM_COLOR } from '../types'
 
 interface Props {
   drag: DragState
+  previewId?: string
 }
 
-export function DragPreview({ drag }: Props) {
+export function DragPreview({ drag, previewId }: Props) {
   return (
-    <div style={{
+    <div id={previewId} style={{
       position: 'fixed',
       left: drag.x - 23,
       top: drag.y - 29,

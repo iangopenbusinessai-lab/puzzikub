@@ -50,8 +50,16 @@ function playSnap() {
   src.start()
 }
 
+function elementFromPointSafe(x: number, y: number): Element | null {
+  const preview = document.getElementById('drag-preview')
+  if (preview) preview.style.display = 'none'
+  const el = document.elementFromPoint(x, y)
+  if (preview) preview.style.display = ''
+  return el
+}
+
 function findDropTarget(e: React.PointerEvent): { to: 'grid'; row: number; col: number } | { to: 'rack' } | null {
-  let el: Element | null = document.elementFromPoint(e.clientX, e.clientY)
+  let el: Element | null = elementFromPointSafe(e.clientX, e.clientY)
   while (el) {
     const ds = (el as HTMLElement).dataset
     if (ds.row !== undefined && ds.col !== undefined) {
@@ -101,7 +109,7 @@ export function PlayScreen({ activeScreen, onNav, theme, setTheme, soundEnabled,
 
     function onMove(e: PointerEvent) {
       moveDrag(e as unknown as React.PointerEvent)
-      let node: Element | null = document.elementFromPoint(e.clientX, e.clientY)
+      let node: Element | null = elementFromPointSafe(e.clientX, e.clientY)
       while (node) {
         const ds = (node as HTMLElement).dataset
         if (ds.row !== undefined && ds.col !== undefined) {
@@ -251,7 +259,7 @@ export function PlayScreen({ activeScreen, onNav, theme, setTheme, soundEnabled,
         )}
       </div>
 
-      {drag && <DragPreview drag={drag} />}
+      {drag && <DragPreview drag={drag} previewId="drag-preview" />}
 
       {settingsOpen && (
         <SettingsPanel
