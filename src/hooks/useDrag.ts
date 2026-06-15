@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState } from 'react'
 import type { Tile, DragSrc } from '../types'
 
 export interface DragState {
@@ -19,15 +19,15 @@ export function useDrag() {
     document.body.style.cursor = 'grabbing'
   }
 
-  const moveDrag = useCallback((e: MouseEvent) => {
-    setDrag(d => d ? { ...d, x: e.clientX, y: e.clientY } : null)
-  }, [])
+  const updatePos = (x: number, y: number) => {
+    setDrag(d => d ? { ...d, x, y } : null)
+  }
 
-  const endDrag = useCallback(() => {
+  const endDrag = () => {
     setDrag(null)
     document.body.style.userSelect = ''
     document.body.style.cursor = ''
-  }, [])
+  }
 
-  return { drag, startDrag, moveDrag, endDrag }
+  return { drag, startDrag, updatePos, endDrag }
 }

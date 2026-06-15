@@ -1,4 +1,3 @@
-import { useRef, useEffect } from 'react'
 import type { Grid, DragSrc, Tile } from '../types'
 import { NUM_COLOR } from '../types'
 import type { DragState } from '../hooks/useDrag'
@@ -7,22 +6,13 @@ interface Props {
   grid: Grid
   drag: DragState | null
   hoveredCell: { row: number; col: number } | null
-  onMouseDown: (e: React.MouseEvent, tile: Tile, src: DragSrc) => void
+  onTileMouseDown: (e: React.MouseEvent, tile: Tile, src: DragSrc) => void
   onCellEnter: (row: number, col: number) => void
   onCellLeave: () => void
   invalidCells: Set<string>
 }
 
-export function Board({ grid, drag, hoveredCell, onMouseDown, onCellEnter, onCellLeave, invalidCells }: Props) {
-  const boardRef = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    const el = boardRef.current
-    if (!el) return
-    const handler = (e: DragEvent) => e.preventDefault()
-    el.addEventListener('dragstart', handler, true)
-    return () => el.removeEventListener('dragstart', handler, true)
-  }, [])
-
+export function Board({ grid, drag, hoveredCell, onTileMouseDown, onCellEnter, onCellLeave, invalidCells }: Props) {
   const rows = grid.length
   const cols = grid[0]?.length ?? 0
   if (rows === 0 || cols === 0) return null
@@ -45,7 +35,6 @@ export function Board({ grid, drag, hoveredCell, onMouseDown, onCellEnter, onCel
           <div
             key={isInvalid ? `${r}-${c}-${shakeKey}` : `${r}-${c}`}
             className={isInvalid ? 'tile-invalid' : ''}
-            onDragStart={e => e.preventDefault()}
             style={{
               width: 46,
               height: 58,
@@ -67,7 +56,7 @@ export function Board({ grid, drag, hoveredCell, onMouseDown, onCellEnter, onCel
               transition: 'background 0.15s ease, opacity 0.1s ease',
               boxSizing: 'border-box',
             }}
-            onMouseDown={e => onMouseDown(e, tile, { from: 'grid', row: r, col: c })}
+            onMouseDown={e => onTileMouseDown(e, tile, { from: 'grid', row: r, col: c })}
             onMouseEnter={() => onCellEnter(r, c)}
             onMouseLeave={onCellLeave}
           >
@@ -97,8 +86,6 @@ export function Board({ grid, drag, hoveredCell, onMouseDown, onCellEnter, onCel
 
   return (
     <div
-      ref={boardRef}
-      onDragStart={e => e.preventDefault()}
       style={{
         display: 'inline-grid',
         gridTemplateColumns: `repeat(${cols}, 46px)`,

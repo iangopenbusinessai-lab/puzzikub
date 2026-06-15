@@ -52,7 +52,7 @@ function playSnap() {
 
 export function PlayScreen({ activeScreen, onNav, theme, setTheme, soundEnabled, setSoundEnabled }: Props) {
   const { grid, rack, moves, undos, won, optimalMoves, invalidCells, drop, undo, reset, loadPuzzle } = usePlayState()
-  const { drag, startDrag, moveDrag, endDrag } = useDrag()
+  const { drag, startDrag, updatePos, endDrag } = useDrag()
 
   const [diff, setDiff] = useState<Difficulty>('easy')
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -88,7 +88,7 @@ export function PlayScreen({ activeScreen, onNav, theme, setTheme, soundEnabled,
   useEffect(() => {
     if (!drag) return
 
-    const onMove = (e: MouseEvent) => moveDrag(e)
+    const onMove = (e: MouseEvent) => updatePos(e.clientX, e.clientY)
 
     const onUp = () => {
       if (hoverTarget) {
@@ -197,9 +197,9 @@ export function PlayScreen({ activeScreen, onNav, theme, setTheme, soundEnabled,
                 grid={grid}
                 drag={drag}
                 hoveredCell={hoverTarget?.to === 'grid' ? { row: hoverTarget.row, col: hoverTarget.col } : null}
-                onMouseDown={startDrag}
-                onCellEnter={(row, col) => drag && setHoverTarget({ to: 'grid', row, col })}
-                onCellLeave={() => drag && setHoverTarget(null)}
+                onTileMouseDown={startDrag}
+                onCellEnter={(row, col) => setHoverTarget({ to: 'grid', row, col })}
+                onCellLeave={() => setHoverTarget(null)}
                 invalidCells={invalidCells}
               />
             </div>
@@ -207,9 +207,9 @@ export function PlayScreen({ activeScreen, onNav, theme, setTheme, soundEnabled,
             <Rack
               tiles={rack}
               drag={drag}
-              onMouseDown={startDrag}
-              onRackEnter={() => drag && setHoverTarget({ to: 'rack' })}
-              onRackLeave={() => drag && setHoverTarget(null)}
+              onTileMouseDown={startDrag}
+              onRackEnter={() => setHoverTarget({ to: 'rack' })}
+              onRackLeave={() => setHoverTarget(null)}
             />
 
             {won && (

@@ -1,4 +1,3 @@
-import { useRef, useEffect } from 'react'
 import type { Tile, DragSrc } from '../types'
 import { NUM_COLOR } from '../types'
 import type { DragState } from '../hooks/useDrag'
@@ -6,25 +5,16 @@ import type { DragState } from '../hooks/useDrag'
 interface Props {
   tiles: Tile[]
   drag: DragState | null
-  onMouseDown: (e: React.MouseEvent, tile: Tile, src: DragSrc) => void
+  onTileMouseDown: (e: React.MouseEvent, tile: Tile, src: DragSrc) => void
   onRackEnter: () => void
   onRackLeave: () => void
 }
 
-export function Rack({ tiles, drag, onMouseDown, onRackEnter, onRackLeave }: Props) {
+export function Rack({ tiles, drag, onTileMouseDown, onRackEnter, onRackLeave }: Props) {
   const draggingRackIdx = drag?.src.from === 'rack' ? drag.src.rackIdx : undefined
 
-  const rackRef = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    const el = rackRef.current
-    if (!el) return
-    const handler = (e: DragEvent) => e.preventDefault()
-    el.addEventListener('dragstart', handler, true)
-    return () => el.removeEventListener('dragstart', handler, true)
-  }, [])
-
   return (
-    <div ref={rackRef} onDragStart={e => e.preventDefault()}>
+    <div>
       <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 8 }}>rack</div>
       <div
         onMouseEnter={onRackEnter}
@@ -43,7 +33,6 @@ export function Rack({ tiles, drag, onMouseDown, onRackEnter, onRackLeave }: Pro
         {tiles.map((tile, i) => (
           <div
             key={i}
-            onDragStart={e => e.preventDefault()}
             style={{
               width: 46,
               height: 58,
@@ -62,7 +51,7 @@ export function Rack({ tiles, drag, onMouseDown, onRackEnter, onRackLeave }: Pro
               transform: draggingRackIdx === i ? 'scale(0.93)' : 'none',
               transition: 'background 0.15s ease, opacity 0.1s ease',
             }}
-            onMouseDown={e => onMouseDown(e, tile, { from: 'rack', rackIdx: i })}
+            onMouseDown={e => onTileMouseDown(e, tile, { from: 'rack', rackIdx: i })}
           >
             <span style={{ pointerEvents: 'none', userSelect: 'none' }}>{tile.n}</span>
           </div>
