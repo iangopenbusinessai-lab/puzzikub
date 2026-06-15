@@ -57,18 +57,6 @@ function findDropTarget(e: React.PointerEvent): { to: 'grid'; row: number; col: 
   return null
 }
 
-function findHoveredCell(e: React.PointerEvent): { row: number; col: number } | null {
-  let el: Element | null = document.elementFromPoint(e.clientX, e.clientY)
-  while (el) {
-    const ds = (el as HTMLElement).dataset
-    if (ds.row !== undefined && ds.col !== undefined) {
-      return { row: Number(ds.row), col: Number(ds.col) }
-    }
-    el = el.parentElement
-  }
-  return null
-}
-
 export function PlayScreen({ activeScreen, onNav, theme, setTheme, soundEnabled, setSoundEnabled }: Props) {
   const { grid, rack, moves, undos, won, optimalMoves, invalidCells, drop, undo, reset, loadPuzzle } = usePlayState()
   const { drag, startDrag, moveDrag, endDrag } = useDrag()
@@ -96,30 +84,46 @@ export function PlayScreen({ activeScreen, onNav, theme, setTheme, soundEnabled,
 
   const handleDiff = (d: Difficulty) => { setDiff(d); generate(d) }
 
-  const handlePointerMove = (e: React.PointerEvent) => {
+  useEffect(() => {
     if (!drag) return
-    moveDrag(e)
-    setHoveredCell(findHoveredCell(e))
-  }
 
-  const handlePointerUp = (e: React.PointerEvent) => {
-    if (!drag) return
-    const target = findDropTarget(e)
-    if (target) {
-      drop(drag.src, target)
-      if (target.to === 'grid' && soundEnabled) playSnap()
+    function onMove(e: PointerEvent) {
+      moveDrag(e as unknown as React.PointerEvent)
+      let node: Element | null = document.elementFromPoint(e.clientX, e.clientY)
+      while (node) {
+        const ds = (node as HTMLElement).dataset
+        if (ds.row !== undefined && ds.col !== undefined) {
+          setHoveredCell({ row: Number(ds.row), col: Number(ds.col) })
+          return
+        }
+        node = node.parentElement
+      }
+      setHoveredCell(null)
     }
-    endDrag()
-    setHoveredCell(null)
-  }
+
+    function onUp(e: PointerEvent) {
+      const target = findDropTarget(e as unknown as React.PointerEvent)
+      if (target) {
+        drop(drag.src, target)
+        if (target.to === 'grid' && soundEnabled) playSnap()
+      }
+      endDrag()
+      setHoveredCell(null)
+    }
+
+    document.addEventListener('pointermove', onMove)
+    document.addEventListener('pointerup', onUp)
+    return () => {
+      document.removeEventListener('pointermove', onMove)
+      document.removeEventListener('pointerup', onUp)
+    }
+  }, [drag, soundEnabled]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const loading = grid.length === 0
 
   return (
     <div
       style={{ background: 'var(--bg)', minHeight: '100vh', transition: 'background 0.15s ease' }}
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
     >
       {/* Sticky nav */}
       <nav style={{
