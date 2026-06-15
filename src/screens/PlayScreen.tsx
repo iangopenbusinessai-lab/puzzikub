@@ -50,27 +50,6 @@ function playSnap() {
   src.start()
 }
 
-function elementFromPointSafe(x: number, y: number): Element | null {
-  const preview = document.getElementById('drag-preview')
-  if (preview) preview.style.display = 'none'
-  const el = document.elementFromPoint(x, y)
-  if (preview) preview.style.display = ''
-  return el
-}
-
-function findDropTarget(e: React.PointerEvent): { to: 'grid'; row: number; col: number } | { to: 'rack' } | null {
-  let el: Element | null = elementFromPointSafe(e.clientX, e.clientY)
-  while (el) {
-    const ds = (el as HTMLElement).dataset
-    if (ds.row !== undefined && ds.col !== undefined) {
-      return { to: 'grid', row: Number(ds.row), col: Number(ds.col) }
-    }
-    if (ds.rack) return { to: 'rack' }
-    el = el.parentElement
-  }
-  return null
-}
-
 export function PlayScreen({ activeScreen, onNav, theme, setTheme, soundEnabled, setSoundEnabled }: Props) {
   const { grid, rack, moves, undos, won, optimalMoves, invalidCells, drop, undo, reset, loadPuzzle } = usePlayState()
   const { drag, startDrag, moveDrag, endDrag } = useDrag()
@@ -80,12 +59,14 @@ export function PlayScreen({ activeScreen, onNav, theme, setTheme, soundEnabled,
   const [showTutorial, setShowTutorial] = useState(
     () => !localStorage.getItem('puzzikub_seen_tutorial')
   )
+  const [hoverTarget, setHoverTarget] = useState<
+    { to: 'grid'; row: number; col: number } | { to: 'rack' } | null
+  >(null)
 
   function dismissTutorial() {
     localStorage.setItem('puzzikub_seen_tutorial', '1')
     setShowTutorial(false)
   }
-  const [hoveredCell, setHoveredCell] = useState<{ row: number; col: number } | null>(null)
 
   const generate = useCallback((d: Difficulty) => {
     const p = generatePuzzle(d)
@@ -107,37 +88,24 @@ export function PlayScreen({ activeScreen, onNav, theme, setTheme, soundEnabled,
   useEffect(() => {
     if (!drag) return
 
-    function onMove(e: PointerEvent) {
-      moveDrag(e as unknown as React.PointerEvent)
-      let node: Element | null = elementFromPointSafe(e.clientX, e.clientY)
-      while (node) {
-        const ds = (node as HTMLElement).dataset
-        if (ds.row !== undefined && ds.col !== undefined) {
-          setHoveredCell({ row: Number(ds.row), col: Number(ds.col) })
-          return
-        }
-        node = node.parentElement
-      }
-      setHoveredCell(null)
-    }
+    const onMove = (e: MouseEvent) => moveDrag(e)
 
-    function onUp(e: PointerEvent) {
-      const target = findDropTarget(e as unknown as React.PointerEvent)
-      if (target) {
-        drop(drag.src, target)
-        if (target.to === 'grid' && soundEnabled) playSnap()
+    const onUp = () => {
+      if (hoverTarget) {
+        drop(drag.src, hoverTarget)
+        if (hoverTarget.to === 'grid' && soundEnabled) playSnap()
       }
       endDrag()
-      setHoveredCell(null)
+      setHoverTarget(null)
     }
 
-    document.addEventListener('pointermove', onMove)
-    document.addEventListener('pointerup', onUp)
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
     return () => {
-      document.removeEventListener('pointermove', onMove)
-      document.removeEventListener('pointerup', onUp)
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
     }
-  }, [drag, soundEnabled]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [drag, hoverTarget, soundEnabled]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const loading = grid.length === 0
 
@@ -228,8 +196,10 @@ export function PlayScreen({ activeScreen, onNav, theme, setTheme, soundEnabled,
               <Board
                 grid={grid}
                 drag={drag}
-                hoveredCell={hoveredCell}
-                onPointerDown={startDrag}
+                hoveredCell={hoverTarget?.to === 'grid' ? { row: hoverTarget.row, col: hoverTarget.col } : null}
+                onMouseDown={startDrag}
+                onCellEnter={(row, col) => drag && setHoverTarget({ to: 'grid', row, col })}
+                onCellLeave={() => drag && setHoverTarget(null)}
                 invalidCells={invalidCells}
               />
             </div>
@@ -237,7 +207,9 @@ export function PlayScreen({ activeScreen, onNav, theme, setTheme, soundEnabled,
             <Rack
               tiles={rack}
               drag={drag}
-              onPointerDown={startDrag}
+              onMouseDown={startDrag}
+              onRackEnter={() => drag && setHoverTarget({ to: 'rack' })}
+              onRackLeave={() => drag && setHoverTarget(null)}
             />
 
             {won && (
@@ -259,7 +231,7 @@ export function PlayScreen({ activeScreen, onNav, theme, setTheme, soundEnabled,
         )}
       </div>
 
-      {drag && <DragPreview drag={drag} previewId="drag-preview" />}
+      {drag && <DragPreview drag={drag} />}
 
       {settingsOpen && (
         <SettingsPanel

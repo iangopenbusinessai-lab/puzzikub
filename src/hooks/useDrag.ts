@@ -6,28 +6,27 @@ export interface DragState {
   src: DragSrc
   x: number
   y: number
-  startX: number
-  startY: number
 }
 
 export function useDrag() {
   const [drag, setDrag] = useState<DragState | null>(null)
 
-  const startDrag = useCallback((e: React.PointerEvent<HTMLElement>, tile: Tile, src: DragSrc) => {
+  const startDrag = (e: React.MouseEvent, tile: Tile, src: DragSrc) => {
     e.preventDefault()
-    setDrag({ tile, src, x: e.clientX, y: e.clientY, startX: e.clientX, startY: e.clientY })
-    document.body.style.cursor = 'grabbing'
+    e.stopPropagation()
+    setDrag({ tile, src, x: e.clientX, y: e.clientY })
     document.body.style.userSelect = 'none'
-  }, [])
+    document.body.style.cursor = 'grabbing'
+  }
 
-  const moveDrag = useCallback((e: React.PointerEvent) => {
+  const moveDrag = useCallback((e: MouseEvent) => {
     setDrag(d => d ? { ...d, x: e.clientX, y: e.clientY } : null)
   }, [])
 
   const endDrag = useCallback(() => {
     setDrag(null)
-    document.body.style.cursor = ''
     document.body.style.userSelect = ''
+    document.body.style.cursor = ''
   }, [])
 
   return { drag, startDrag, moveDrag, endDrag }

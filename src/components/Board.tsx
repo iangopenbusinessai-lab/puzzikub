@@ -6,12 +6,13 @@ interface Props {
   grid: Grid
   drag: DragState | null
   hoveredCell: { row: number; col: number } | null
-  onPointerDown: (e: React.PointerEvent<HTMLElement>, tile: Tile, src: DragSrc) => void
+  onMouseDown: (e: React.MouseEvent, tile: Tile, src: DragSrc) => void
+  onCellEnter: (row: number, col: number) => void
+  onCellLeave: () => void
   invalidCells: Set<string>
 }
 
-
-export function Board({ grid, drag, hoveredCell, onPointerDown, invalidCells }: Props) {
+export function Board({ grid, drag, hoveredCell, onMouseDown, onCellEnter, onCellLeave, invalidCells }: Props) {
   const rows = grid.length
   const cols = grid[0]?.length ?? 0
   if (rows === 0 || cols === 0) return null
@@ -34,8 +35,6 @@ export function Board({ grid, drag, hoveredCell, onPointerDown, invalidCells }: 
           <div
             key={isInvalid ? `${r}-${c}-${shakeKey}` : `${r}-${c}`}
             className={isInvalid ? 'tile-invalid' : ''}
-            data-row={r}
-            data-col={c}
             onDragStart={e => e.preventDefault()}
             style={{
               width: 46,
@@ -58,7 +57,9 @@ export function Board({ grid, drag, hoveredCell, onPointerDown, invalidCells }: 
               transition: 'background 0.15s ease, opacity 0.1s ease',
               boxSizing: 'border-box',
             }}
-            onPointerDown={e => onPointerDown(e, tile, { from: 'grid', row: r, col: c })}
+            onMouseDown={e => onMouseDown(e, tile, { from: 'grid', row: r, col: c })}
+            onMouseEnter={() => onCellEnter(r, c)}
+            onMouseLeave={onCellLeave}
           >
             {tile.n}
           </div>,
@@ -67,8 +68,6 @@ export function Board({ grid, drag, hoveredCell, onPointerDown, invalidCells }: 
         cells.push(
           <div
             key={`empty-${r}-${c}`}
-            data-row={r}
-            data-col={c}
             style={{
               width: 46,
               height: 58,
@@ -78,6 +77,8 @@ export function Board({ grid, drag, hoveredCell, onPointerDown, invalidCells }: 
               outlineOffset: -2,
               transition: 'background 0.15s ease',
             }}
+            onMouseEnter={() => onCellEnter(r, c)}
+            onMouseLeave={onCellLeave}
           />,
         )
       }

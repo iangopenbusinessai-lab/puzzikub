@@ -5,18 +5,20 @@ import type { DragState } from '../hooks/useDrag'
 interface Props {
   tiles: Tile[]
   drag: DragState | null
-  onPointerDown: (e: React.PointerEvent<HTMLElement>, tile: Tile, src: DragSrc) => void
+  onMouseDown: (e: React.MouseEvent, tile: Tile, src: DragSrc) => void
+  onRackEnter: () => void
+  onRackLeave: () => void
 }
 
-
-export function Rack({ tiles, drag, onPointerDown }: Props) {
+export function Rack({ tiles, drag, onMouseDown, onRackEnter, onRackLeave }: Props) {
   const draggingRackIdx = drag?.src.from === 'rack' ? drag.src.rackIdx : undefined
 
   return (
     <div>
       <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 8 }}>rack</div>
       <div
-        data-rack="true"
+        onMouseEnter={onRackEnter}
+        onMouseLeave={onRackLeave}
         style={{
           background: 'var(--rack-bg)',
           borderRadius: 12,
@@ -50,7 +52,7 @@ export function Rack({ tiles, drag, onPointerDown }: Props) {
               transform: draggingRackIdx === i ? 'scale(0.93)' : 'none',
               transition: 'background 0.15s ease, opacity 0.1s ease',
             }}
-            onPointerDown={e => onPointerDown(e, tile, { from: 'rack', rackIdx: i })}
+            onMouseDown={e => onMouseDown(e, tile, { from: 'rack', rackIdx: i })}
           >
             {tile.n}
           </div>
