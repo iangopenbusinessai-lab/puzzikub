@@ -3,6 +3,13 @@ export interface Tile {
   c: 'r' | 'b' | 'a' | 'k'
 }
 
+export const NUM_COLOR: Record<Tile['c'], string> = {
+  r: '#A32D2D',
+  b: '#185FA5',
+  a: '#BA7517',
+  k: '#222',
+}
+
 export type Difficulty = 'easy' | 'medium' | 'hard'
 
 // Grid dimensions vary per puzzle (not always 6×10)

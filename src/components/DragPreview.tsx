@@ -1,12 +1,5 @@
 import type { DragState } from '../hooks/useDrag'
-import type { Tile } from '../types'
-
-const NUM_COLOR: Record<Tile['c'], string> = {
-  r: '#A32D2D',
-  b: '#185FA5',
-  a: '#BA7517',
-  k: '#222',
-}
+import { NUM_COLOR } from '../types'
 
 interface Props {
   drag: DragState

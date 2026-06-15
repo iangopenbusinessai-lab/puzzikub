@@ -1,11 +1,10 @@
 import { useState, useEffect } from 'react'
-import type { Puzzle } from './types'
+import type { Puzzle, Screen } from './types'
 import { loadLibrary, saveLibrary } from './lib/storage'
 import { LibraryScreen } from './screens/LibraryScreen'
 import { PlayScreen } from './screens/PlayScreen'
 import { EditorScreen } from './screens/EditorScreen'
 
-type Screen = 'play' | 'library' | 'editor'
 type ThemeOption = 'light' | 'dark' | 'system'
 
 function resolveTheme(t: ThemeOption): 'light' | 'dark' {

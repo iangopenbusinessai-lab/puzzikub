@@ -1,12 +1,6 @@
 import type { Grid, DragSrc, Tile } from '../types'
+import { NUM_COLOR } from '../types'
 import type { DragState } from '../hooks/useDrag'
-
-const NUM_COLOR: Record<Tile['c'], string> = {
-  r: '#A32D2D',
-  b: '#185FA5',
-  a: '#BA7517',
-  k: '#222',
-}
 
 interface Props {
   grid: Grid
@@ -47,8 +41,8 @@ export function Board({ grid, drag, hoveredCell, onPointerDown, invalidCells }: 
               width: 46,
               height: 58,
               borderRadius: 8,
-              background: isInvalid ? '#FFF0F0' : 'var(--tile-bg)',
-              boxShadow: isInvalid ? '0 0 0 1.5px #F09595' : 'var(--tile-shadow)',
+              background: isInvalid ? 'var(--invalid-bg)' : 'var(--tile-bg)',
+              boxShadow: isInvalid ? '0 0 0 1.5px var(--invalid-ring)' : 'var(--tile-shadow)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',

@@ -10,6 +10,8 @@
   --text-secondary: #666;
   --border: rgba(0,0,0,0.08);
   --rack-bg: #e8e5df;
+  --invalid-bg: #FFF0F0;
+  --invalid-ring: #F09595;
 }
 
 [data-theme='dark'] {
@@ -24,6 +26,8 @@
   --text-secondary: #8e8e93;
   --border: rgba(255,255,255,0.08);
   --rack-bg: #2a2a2c;
+  --invalid-bg: #3D1F1F;
+  --invalid-ring: #C0504D;
 }
 
 *, *::before, *::after {
@@ -36,10 +40,6 @@ body {
   background: var(--bg);
   color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
-}
-
-#root {
-  min-height: 100vh;
 }
 
 @keyframes shake {

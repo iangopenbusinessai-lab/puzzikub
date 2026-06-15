@@ -1,12 +1,8 @@
+import type { Tile } from '../types'
+import { NUM_COLOR } from '../types'
+
 interface Props {
   onDismiss: () => void
-}
-
-const TILE_COLORS: Record<string, string> = {
-  r: '#A32D2D',
-  b: '#185FA5',
-  a: '#BA7517',
-  k: '#222222',
 }
 
 const RULES = [
@@ -16,7 +12,7 @@ const RULES = [
   'A valid group is 3–4 tiles of the same number in different colors.',
 ]
 
-function TilePreview({ n, c }: { n: number; c: string }) {
+function TilePreview({ n, c }: { n: number; c: Tile['c'] }) {
   return (
     <div style={{
       width: 32,
@@ -29,7 +25,7 @@ function TilePreview({ n, c }: { n: number; c: string }) {
       justifyContent: 'center',
       fontSize: 14,
       fontWeight: 500,
-      color: TILE_COLORS[c],
+      color: NUM_COLOR[c],
       flexShrink: 0,
     }}>
       {n}
