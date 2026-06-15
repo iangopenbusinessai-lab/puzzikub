@@ -33,14 +33,8 @@ interface Props {
 export function TileEl({ tile, src, onDragStart, onDragEnd }: Props) {
   return (
     <div
-      draggable
       style={{ ...BASE }}
-      onDragStart={e => {
-        e.dataTransfer.setData('application/json', JSON.stringify(src))
-        e.dataTransfer.effectAllowed = 'move'
-        onDragStart(src)
-      }}
-      onDragEnd={onDragEnd}
+      onDragStart={e => e.preventDefault()}
     >
       <span style={{ fontSize: 20, fontWeight: 500, color: NUM_COLOR[tile.c], lineHeight: 1 }}>
         {tile.n}

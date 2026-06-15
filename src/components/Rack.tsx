@@ -1,3 +1,4 @@
+import { useRef, useEffect } from 'react'
 import type { Tile, DragSrc } from '../types'
 import { NUM_COLOR } from '../types'
 import type { DragState } from '../hooks/useDrag'
@@ -13,8 +14,17 @@ interface Props {
 export function Rack({ tiles, drag, onMouseDown, onRackEnter, onRackLeave }: Props) {
   const draggingRackIdx = drag?.src.from === 'rack' ? drag.src.rackIdx : undefined
 
+  const rackRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = rackRef.current
+    if (!el) return
+    const handler = (e: DragEvent) => e.preventDefault()
+    el.addEventListener('dragstart', handler, true)
+    return () => el.removeEventListener('dragstart', handler, true)
+  }, [])
+
   return (
-    <div onDragStart={e => e.preventDefault()}>
+    <div ref={rackRef} onDragStart={e => e.preventDefault()}>
       <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 8 }}>rack</div>
       <div
         onMouseEnter={onRackEnter}

@@ -1,3 +1,4 @@
+import { useRef, useEffect } from 'react'
 import type { Grid, DragSrc, Tile } from '../types'
 import { NUM_COLOR } from '../types'
 import type { DragState } from '../hooks/useDrag'
@@ -13,6 +14,15 @@ interface Props {
 }
 
 export function Board({ grid, drag, hoveredCell, onMouseDown, onCellEnter, onCellLeave, invalidCells }: Props) {
+  const boardRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = boardRef.current
+    if (!el) return
+    const handler = (e: DragEvent) => e.preventDefault()
+    el.addEventListener('dragstart', handler, true)
+    return () => el.removeEventListener('dragstart', handler, true)
+  }, [])
+
   const rows = grid.length
   const cols = grid[0]?.length ?? 0
   if (rows === 0 || cols === 0) return null
@@ -87,6 +97,7 @@ export function Board({ grid, drag, hoveredCell, onMouseDown, onCellEnter, onCel
 
   return (
     <div
+      ref={boardRef}
       onDragStart={e => e.preventDefault()}
       style={{
         display: 'inline-grid',
