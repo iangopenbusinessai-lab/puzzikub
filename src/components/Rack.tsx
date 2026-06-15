@@ -14,7 +14,7 @@ export function Rack({ tiles, drag, onMouseDown, onRackEnter, onRackLeave }: Pro
   const draggingRackIdx = drag?.src.from === 'rack' ? drag.src.rackIdx : undefined
 
   return (
-    <div>
+    <div onDragStart={e => e.preventDefault()}>
       <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 8 }}>rack</div>
       <div
         onMouseEnter={onRackEnter}
@@ -54,7 +54,7 @@ export function Rack({ tiles, drag, onMouseDown, onRackEnter, onRackLeave }: Pro
             }}
             onMouseDown={e => onMouseDown(e, tile, { from: 'rack', rackIdx: i })}
           >
-            {tile.n}
+            <span style={{ pointerEvents: 'none', userSelect: 'none' }}>{tile.n}</span>
           </div>
         ))}
       </div>

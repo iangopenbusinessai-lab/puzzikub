@@ -32,6 +32,9 @@
 
 *, *::before, *::after {
   box-sizing: border-box;
+  -webkit-user-drag: none;
+  user-drag: none;
+  -webkit-touch-callout: none;
 }
 
 body {

@@ -61,7 +61,7 @@ export function Board({ grid, drag, hoveredCell, onMouseDown, onCellEnter, onCel
             onMouseEnter={() => onCellEnter(r, c)}
             onMouseLeave={onCellLeave}
           >
-            {tile.n}
+            <span style={{ pointerEvents: 'none', userSelect: 'none' }}>{tile.n}</span>
           </div>,
         )
       } else {
@@ -86,16 +86,18 @@ export function Board({ grid, drag, hoveredCell, onMouseDown, onCellEnter, onCel
   }
 
   return (
-    <div style={{
-      display: 'inline-grid',
-      gridTemplateColumns: `repeat(${cols}, 46px)`,
-      gridTemplateRows: `repeat(${rows}, 58px)`,
-      gap: 6,
-      background: 'var(--grid-bg)',
-      borderRadius: 16,
-      padding: 16,
-      transition: 'background 0.15s ease',
-    }}>
+    <div
+      onDragStart={e => e.preventDefault()}
+      style={{
+        display: 'inline-grid',
+        gridTemplateColumns: `repeat(${cols}, 46px)`,
+        gridTemplateRows: `repeat(${rows}, 58px)`,
+        gap: 6,
+        background: 'var(--grid-bg)',
+        borderRadius: 16,
+        padding: 16,
+        transition: 'background 0.15s ease',
+      }}>
       {cells}
     </div>
   )
