@@ -72,7 +72,7 @@ export function Board({ grid, drag, hoveredCell, onPointerDown, invalidCells }: 
       } else {
         cells.push(
           <div
-            key={key}
+            key={`empty-${r}-${c}`}
             data-row={r}
             data-col={c}
             style={{

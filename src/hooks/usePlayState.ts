@@ -1,4 +1,4 @@
-import { useReducer, useCallback } from 'react'
+import { useReducer, useCallback, useRef } from 'react'
 import type { Tile, Grid, DragSrc, Puzzle } from '../types'
 import { validateGrid, getInvalidCells } from '../lib/validator'
 
@@ -19,7 +19,7 @@ type Action =
   | { type: 'LOAD'; puzzle: Puzzle }
   | { type: 'DROP'; src: DragSrc; target: DropTarget }
   | { type: 'UNDO' }
-  | { type: 'RESET' }
+  | { type: 'RESET_TO_INITIAL'; grid: Grid; rack: Tile[] }
   | { type: 'SET_WON'; won: boolean }
 
 function deepCopyGrid(g: Grid): Grid {
@@ -105,20 +105,17 @@ function reducer(state: State, action: Action): State {
       }
     }
 
-    case 'RESET': {
-      if (state.history.length === 0) return state
-      const initial = state.history[0]
+    case 'RESET_TO_INITIAL':
       return {
         ...state,
-        grid: initial.grid,
-        rack: initial.rack,
+        grid: action.grid,
+        rack: action.rack,
         history: [],
         moves: 0,
         undos: 0,
         won: false,
         invalidCells: new Set(),
       }
-    }
 
     case 'SET_WON':
       return { ...state, won: action.won, invalidCells: new Set() }
@@ -138,8 +135,10 @@ const INIT: State = {
 
 export function usePlayState() {
   const [state, dispatch] = useReducer(reducer, INIT)
+  const initialState = useRef<{ grid: Grid; rack: Tile[] } | null>(null)
 
   const loadPuzzle = useCallback((p: Puzzle) => {
+    initialState.current = { grid: deepCopyGrid(p.grid), rack: [...p.rack] }
     dispatch({ type: 'LOAD', puzzle: p })
   }, [])
 
@@ -152,7 +151,12 @@ export function usePlayState() {
   }, [])
 
   const reset = useCallback(() => {
-    dispatch({ type: 'RESET' })
+    if (!initialState.current) return
+    dispatch({
+      type: 'RESET_TO_INITIAL',
+      grid: deepCopyGrid(initialState.current.grid),
+      rack: [...initialState.current.rack],
+    })
   }, [])
 
   const setWon = useCallback((won: boolean) => {
