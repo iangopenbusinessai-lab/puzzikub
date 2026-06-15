@@ -28,8 +28,14 @@ const NAV: { label: string; screen: Screen }[] = [
   { label: 'Editor', screen: 'editor' },
 ]
 
+let _audioCtx: AudioContext | null = null
+function getAudioCtx(): AudioContext {
+  if (!_audioCtx) _audioCtx = new AudioContext()
+  return _audioCtx
+}
+
 function playSnap() {
-  const ctx = new AudioContext()
+  const ctx = getAudioCtx()
   const buf = ctx.createBuffer(1, ctx.sampleRate * 0.06, ctx.sampleRate)
   const data = buf.getChannelData(0)
   for (let i = 0; i < data.length; i++) {
@@ -75,7 +81,13 @@ export function PlayScreen({ activeScreen, onNav, theme, setTheme, soundEnabled,
 
   const generate = useCallback((d: Difficulty) => {
     const p = generatePuzzle(d)
-    if (p) loadPuzzle(p)
+    if (!p) {
+      const p2 = generatePuzzle(d)
+      if (!p2) return
+      loadPuzzle(p2)
+      return
+    }
+    loadPuzzle(p)
   }, [loadPuzzle])
 
   useEffect(() => {
