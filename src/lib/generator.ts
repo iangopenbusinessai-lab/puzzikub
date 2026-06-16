@@ -1,4 +1,5 @@
 import type { Tile, Grid, Difficulty, Puzzle } from '../types'
+import { isValidRun, isValidGroup } from './validator'
 
 const COLORS: Tile['c'][] = ['r', 'b', 'a', 'k']
 
@@ -55,7 +56,7 @@ function buildSets(numSets: number): Tile[][] | null {
   return sets
 }
 
-// ── Stage 2: place sets onto grid, size grid to fit ──────────────────────────
+// ── Stage 2: place sets onto grid ────────────────────────────────────────────
 
 function buildGrid(sets: Tile[][]): Grid {
   const maxLen = Math.max(...sets.map(s => s.length))
@@ -70,55 +71,43 @@ function buildGrid(sets: Tile[][]): Grid {
   return grid
 }
 
-// ── Stage 3: find tiles that legally extend existing sets ────────────────────
+// ── Stage 3: single-step legal extensions ────────────────────────────────────
+// Only immediate neighbours — no 2-hop candidates that require a bridge tile
+// that may not exist in the rack.
 
-function legalExtensions(sets: Tile[][], used: Set<string>): Tile[] {
+function singleStepExtensions(set: Tile[], used: Set<string>): Tile[] {
   const candidates: Tile[] = []
 
-  for (const set of sets) {
-    const color = set[0].c
-    const nums = set.map(t => t.n).sort((a, b) => a - b)
-    const isRun =
-      set.every(t => t.c === color) &&
-      nums.every((n, i) => i === 0 || n === nums[i - 1] + 1)
+  const color = set[0].c
+  const nums = set.map(t => t.n).sort((a, b) => a - b)
+  const isRun =
+    set.every(t => t.c === color) &&
+    nums.every((n, i) => i === 0 || n === nums[i - 1] + 1)
 
-    const num = set[0].n
-    const isGroup =
-      set.every(t => t.n === num) &&
-      new Set(set.map(t => t.c)).size === set.length
+  const num = set[0].n
+  const isGroup =
+    set.every(t => t.n === num) &&
+    new Set(set.map(t => t.c)).size === set.length
 
-    if (isRun) {
-      const minN = nums[0]
-      const maxN = nums[nums.length - 1]
-      if (minN - 1 >= 1) {
-        const t: Tile = { n: minN - 1, c: color }
-        if (!used.has(tileKey(t))) candidates.push(t)
-      }
-      if (maxN + 1 <= 13) {
-        const t: Tile = { n: maxN + 1, c: color }
-        if (!used.has(tileKey(t))) candidates.push(t)
-      }
-      if (minN - 2 >= 1) {
-        const lo2: Tile = { n: minN - 2, c: color }
-        const lo1: Tile = { n: minN - 1, c: color }
-        if (!used.has(tileKey(lo2)) && !used.has(tileKey(lo1))) candidates.push(lo2)
-      }
-      if (maxN + 2 <= 13) {
-        const hi1: Tile = { n: maxN + 1, c: color }
-        const hi2: Tile = { n: maxN + 2, c: color }
-        if (!used.has(tileKey(hi1)) && !used.has(tileKey(hi2))) candidates.push(hi2)
-      }
+  if (isRun) {
+    const minN = nums[0]
+    const maxN = nums[nums.length - 1]
+    if (minN - 1 >= 1) {
+      const t: Tile = { n: minN - 1, c: color }
+      if (!used.has(tileKey(t))) candidates.push(t)
     }
+    if (maxN + 1 <= 13) {
+      const t: Tile = { n: maxN + 1, c: color }
+      if (!used.has(tileKey(t))) candidates.push(t)
+    }
+  }
 
-    if (isGroup) {
-      const existingColors = set.map(t => t.c)
-      if (existingColors.length < 4) {
-        for (const c of COLORS) {
-          if (!existingColors.includes(c)) {
-            const t: Tile = { n: num, c }
-            if (!used.has(tileKey(t))) candidates.push(t)
-          }
-        }
+  if (isGroup && set.length < 4) {
+    const existingColors = set.map(t => t.c)
+    for (const c of COLORS) {
+      if (!existingColors.includes(c)) {
+        const t: Tile = { n: num, c }
+        if (!used.has(tileKey(t))) candidates.push(t)
       }
     }
   }
@@ -136,28 +125,45 @@ export function generatePuzzle(diff: Difficulty): Puzzle | null {
     randomInt(5, 8)
 
   for (let attempt = 0; attempt < 10; attempt++) {
-    const sets = buildSets(numSets)
-    if (!sets) continue
+    // Stage 1: build core valid sets
+    const coreSets = buildSets(numSets)
+    if (!coreSets) continue
 
-    const used = new Set(sets.flat().map(tileKey))
-    const grid = buildGrid(sets)
+    // Stage 2: for each set, append single-step extension tiles directly into
+    // that set's tile array. Tracking `used` across sets prevents cross-set
+    // collisions. The puzzle rack = these appended tiles pulled back out.
+    const used = new Set(coreSets.flat().map(tileKey))
+    const extSets: Tile[][] = coreSets.map(s => [...s])
+    const rackTiles: Tile[] = []
 
-    const extensions = legalExtensions(sets, new Set(used))
-    if (extensions.length === 0) continue
-
-    const rack: Tile[] = []
-    const usedCopy = new Set(used)
-    const shuffledExt = shuffle(extensions)
-    for (const t of shuffledExt) {
-      if (rack.length >= numExtra) break
-      if (!usedCopy.has(tileKey(t))) {
-        rack.push(t)
-        usedCopy.add(tileKey(t))
+    const indices = shuffle(Array.from({ length: numSets }, (_, i) => i))
+    for (const si of indices) {
+      if (rackTiles.length >= numExtra) break
+      // Always compute candidates against the ORIGINAL core set endpoints so
+      // extensions added to one end don't shift the target for the other.
+      const candidates = singleStepExtensions(coreSets[si], used)
+      if (candidates.length === 0) continue
+      const want = Math.min(2, numExtra - rackTiles.length, candidates.length)
+      for (const t of shuffle(candidates).slice(0, want)) {
+        extSets[si].push(t)
+        used.add(tileKey(t))
+        rackTiles.push(t)
       }
     }
-    if (rack.length === 0) continue
-    if (rack.length < numExtra * 0.75) continue
 
+    if (rackTiles.length === 0) continue
+    if (rackTiles.length < numExtra * 0.75) continue
+
+    // Stage 3: confirm every extended set is still a valid Rummikub set.
+    // Single-step extensions always preserve validity, so this should never
+    // fail — it's a safety net against future logic changes.
+    if (!extSets.every(s => isValidRun(s) || isValidGroup(s))) continue
+
+    // Stage 4: build puzzle.
+    // grid  = core sets only (extensions removed) — always a fully valid board.
+    // rack  = the extension tiles; each has exactly one valid home with no
+    //         cross-set conflicts possible, guaranteeing solvability.
+    const grid = buildGrid(coreSets)
     const extraRows = 2
     const extraGrid = [
       ...grid,
@@ -169,8 +175,8 @@ export function generatePuzzle(diff: Difficulty): Puzzle | null {
       name: `${diff} puzzle`,
       diff,
       grid: extraGrid,
-      rack: shuffle(rack),
-      optimalMoves: rack.length,
+      rack: shuffle(rackTiles),
+      optimalMoves: rackTiles.length,
       generated: true,
     }
   }
