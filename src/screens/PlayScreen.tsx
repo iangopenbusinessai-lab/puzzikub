@@ -1,14 +1,17 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { usePlayState } from '../hooks/usePlayState'
 import { useDrag } from '../hooks/useDrag'
 import { generatePuzzle } from '../lib/generator'
+import { getNewlyValidCells } from '../lib/validator'
+import { playPlace, playLockIn, playError, playWinFanfare } from '../lib/audio'
 import { Board } from '../components/Board'
 import { Rack } from '../components/Rack'
 import { DragPreview } from '../components/DragPreview'
 import { NavBar } from '../components/NavBar'
-import type { Screen, Difficulty } from '../types'
+import type { Screen, Difficulty, Grid } from '../types'
 
 const DIFFS: Difficulty[] = ['easy', 'medium', 'hard']
+const CONFETTI_COLORS = ['#A32D2D', '#185FA5', '#BA7517', '#222222']
 
 interface Props {
   activeScreen: Screen
@@ -16,28 +19,6 @@ interface Props {
   soundEnabled: boolean
   onShowSettings: () => void
   onShowTutorial: () => void
-}
-
-let _audioCtx: AudioContext | null = null
-function getAudioCtx(): AudioContext {
-  if (!_audioCtx) _audioCtx = new AudioContext()
-  return _audioCtx
-}
-
-function playSnap() {
-  const ctx = getAudioCtx()
-  const buf = ctx.createBuffer(1, ctx.sampleRate * 0.06, ctx.sampleRate)
-  const data = buf.getChannelData(0)
-  for (let i = 0; i < data.length; i++) {
-    data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.008))
-  }
-  const src = ctx.createBufferSource()
-  const gain = ctx.createGain()
-  gain.gain.value = 0.18
-  src.buffer = buf
-  src.connect(gain)
-  gain.connect(ctx.destination)
-  src.start()
 }
 
 export function PlayScreen({ activeScreen, onNav, soundEnabled, onShowSettings, onShowTutorial }: Props) {
@@ -48,6 +29,23 @@ export function PlayScreen({ activeScreen, onNav, soundEnabled, onShowSettings, 
   const [hoverTarget, setHoverTarget] = useState<
     { to: 'grid'; row: number; col: number } | { to: 'rack' } | null
   >(null)
+  const [lockInCells, setLockInCells] = useState<Set<string>>(new Set())
+  const [showConfetti, setShowConfetti] = useState(false)
+  const [confettiId, setConfettiId] = useState(0)
+
+  const prevGridRef = useRef<Grid>([])
+  const justDroppedToGridRef = useRef(false)
+  const prevRackLenRef = useRef(rack.length)
+
+  const confettiPieces = useMemo(() => (
+    Array.from({ length: 20 }, (_, i) => ({
+      id: i,
+      color: CONFETTI_COLORS[i % 4],
+      tx: `${(Math.random() - 0.5) * 300}px`,
+      ty: `${100 + Math.random() * 200}px`,
+      delay: `${Math.random() * 0.4}s`,
+    }))
+  ), [confettiId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const generate = useCallback((d: Difficulty) => {
     const p = generatePuzzle(d)
@@ -66,6 +64,7 @@ export function PlayScreen({ activeScreen, onNav, soundEnabled, onShowSettings, 
 
   const handleDiff = (d: Difficulty) => { setDiff(d); generate(d) }
 
+  // Document-level mouse tracking while dragging
   useEffect(() => {
     if (!drag) return
 
@@ -73,8 +72,12 @@ export function PlayScreen({ activeScreen, onNav, soundEnabled, onShowSettings, 
 
     const onUp = () => {
       if (hoverTarget) {
+        if (hoverTarget.to === 'grid') {
+          prevGridRef.current = grid
+          justDroppedToGridRef.current = true
+        }
         drop(drag.src, hoverTarget)
-        if (hoverTarget.to === 'grid' && soundEnabled) playSnap()
+        if (hoverTarget.to === 'grid' && soundEnabled) playPlace()
       }
       endDrag()
       setHoverTarget(null)
@@ -87,6 +90,34 @@ export function PlayScreen({ activeScreen, onNav, soundEnabled, onShowSettings, 
       document.removeEventListener('mouseup', onUp)
     }
   }, [drag, hoverTarget, soundEnabled]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Lock-in glow: detect newly valid cells after a grid drop
+  useEffect(() => {
+    if (!justDroppedToGridRef.current) return
+    justDroppedToGridRef.current = false
+    const newlyValid = getNewlyValidCells(prevGridRef.current, grid)
+    if (newlyValid.size > 0) {
+      if (soundEnabled && !won) playLockIn()
+      setLockInCells(newlyValid)
+      setTimeout(() => setLockInCells(new Set()), 600)
+    }
+  }, [grid]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Win / error sounds triggered when rack empties
+  useEffect(() => {
+    const prev = prevRackLenRef.current
+    prevRackLenRef.current = rack.length
+    if (rack.length === 0 && prev > 0) {
+      if (won) {
+        if (soundEnabled) playWinFanfare()
+        setShowConfetti(true)
+        setConfettiId(id => id + 1)
+        setTimeout(() => setShowConfetti(false), 1800)
+      } else {
+        if (soundEnabled) playError()
+      }
+    }
+  }, [rack.length, won]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const loading = grid.length === 0
 
@@ -141,6 +172,7 @@ export function PlayScreen({ activeScreen, onNav, soundEnabled, onShowSettings, 
                 onCellEnter={(row, col) => setHoverTarget({ to: 'grid', row, col })}
                 onCellLeave={() => setHoverTarget(null)}
                 invalidCells={invalidCells}
+                lockInCells={lockInCells}
               />
             </div>
 
@@ -154,7 +186,9 @@ export function PlayScreen({ activeScreen, onNav, soundEnabled, onShowSettings, 
 
             {won && (
               <div style={{ color: '#27500A', fontSize: 13, margin: '12px 0' }}>
-                cleared ✓&nbsp;&nbsp;{moves} moves&nbsp;&nbsp;·&nbsp;&nbsp;optimal: {optimalMoves}
+                <span className="win-text-in">
+                  cleared ✓&nbsp;&nbsp;{moves} moves&nbsp;&nbsp;·&nbsp;&nbsp;optimal: {optimalMoves}
+                </span>
               </div>
             )}
 
@@ -172,6 +206,29 @@ export function PlayScreen({ activeScreen, onNav, soundEnabled, onShowSettings, 
       </div>
 
       {drag && <DragPreview drag={drag} />}
+
+      {showConfetti && (
+        <div
+          key={confettiId}
+          style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 150 }}
+        >
+          {confettiPieces.map(p => (
+            <div
+              key={p.id}
+              className="confetti-piece"
+              style={{
+                position: 'absolute',
+                left: '50%',
+                top: '40%',
+                background: p.color,
+                animationDelay: p.delay,
+                '--tx': p.tx,
+                '--ty': p.ty,
+              } as React.CSSProperties}
+            />
+          ))}
+        </div>
+      )}
     </div>
   )
 }

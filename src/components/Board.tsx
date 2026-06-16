@@ -10,9 +10,10 @@ interface Props {
   onCellEnter: (row: number, col: number) => void
   onCellLeave: () => void
   invalidCells: Set<string>
+  lockInCells: Set<string>
 }
 
-export function Board({ grid, drag, hoveredCell, onTileMouseDown, onCellEnter, onCellLeave, invalidCells }: Props) {
+export function Board({ grid, drag, hoveredCell, onTileMouseDown, onCellEnter, onCellLeave, invalidCells, lockInCells }: Props) {
   const rows = grid.length
   const cols = grid[0]?.length ?? 0
   if (rows === 0 || cols === 0) return null
@@ -29,12 +30,13 @@ export function Board({ grid, drag, hoveredCell, onTileMouseDown, onCellEnter, o
       const hovered = hoveredCell?.row === r && hoveredCell?.col === c
       const isDraggingSrc = srcRow === r && srcCol === c
       const isInvalid = invalidCells.has(`${r},${c}`)
+      const isLockIn = lockInCells.has(`${r},${c}`)
 
       if (tile) {
         cells.push(
           <div
             key={isInvalid ? `${r}-${c}-${shakeKey}` : `${r}-${c}`}
-            className={isInvalid ? 'tile-invalid' : ''}
+            className={isInvalid ? 'tile-invalid' : isLockIn ? 'tile-lockin' : ''}
             style={{
               width: 46,
               height: 58,
@@ -50,7 +52,8 @@ export function Board({ grid, drag, hoveredCell, onTileMouseDown, onCellEnter, o
               cursor: 'grab',
               userSelect: 'none',
               opacity: isDraggingSrc ? 0.35 : 1,
-              transform: isDraggingSrc ? 'scale(0.93)' : 'none',
+              transform: isDraggingSrc ? 'scale(0.93)' : undefined,
+              animation: !isInvalid && !isLockIn ? 'tile-land 0.2s ease' : undefined,
               outline: hovered && !isDraggingSrc ? '2px solid #378ADD' : 'none',
               outlineOffset: -2,
               transition: 'background 0.15s ease, opacity 0.1s ease',
@@ -67,6 +70,7 @@ export function Board({ grid, drag, hoveredCell, onTileMouseDown, onCellEnter, o
         cells.push(
           <div
             key={`empty-${r}-${c}`}
+            className="cell-idle"
             style={{
               width: 46,
               height: 58,

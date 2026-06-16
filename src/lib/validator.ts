@@ -117,3 +117,27 @@ export function getInvalidCells(grid: Grid): Set<string> {
 
   return invalid
 }
+
+export function getNewlyValidCells(prevGrid: Grid, newGrid: Grid): Set<string> {
+  const result = new Set<string>()
+  if (!prevGrid.length || !newGrid.length) return result
+
+  const prevMaps = buildGroups(prevGrid)
+  const newMaps = buildGroups(newGrid)
+
+  const rows = newGrid.length
+  const cols = newGrid[0]?.length ?? 0
+
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      if (!newGrid[r][c]) continue
+      const wasCovered = prevGrid[r]?.[c]
+        ? isCovered(prevMaps.hOf[r]?.[c] ?? null, prevMaps.vOf[r]?.[c] ?? null)
+        : false
+      const nowCovered = isCovered(newMaps.hOf[r][c], newMaps.vOf[r][c])
+      if (nowCovered && !wasCovered) result.add(`${r},${c}`)
+    }
+  }
+
+  return result
+}

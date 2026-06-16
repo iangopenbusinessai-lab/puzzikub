@@ -55,3 +55,52 @@ body {
 .tile-invalid {
   animation: shake 0.35s ease;
 }
+
+@keyframes tile-land {
+  0%   { transform: scale(0.85); opacity: 0.6; }
+  60%  { transform: scale(1.05); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes tile-lockin-glow {
+  0%   { box-shadow: 0 0 0 0   rgba(250,199,117,0); }
+  30%  { box-shadow: 0 0 0 4px rgba(250,199,117,0.6); }
+  100% { box-shadow: 0 0 0 0   rgba(250,199,117,0); }
+}
+
+.tile-lockin {
+  animation: tile-lockin-glow 0.6s ease;
+}
+
+@keyframes cell-breathe {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.7; }
+}
+
+.cell-idle {
+  animation: cell-breathe 4s ease-in-out infinite;
+}
+
+@keyframes win-text-in {
+  0%   { opacity: 0; transform: scale(0.8); }
+  60%  { opacity: 1; transform: scale(1.08); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+.win-text-in {
+  display: inline-block;
+  animation: win-text-in 0.45s ease;
+}
+
+@keyframes confetti-fall {
+  0%   { transform: translate(0, 0) rotate(0deg); opacity: 1; }
+  100% { transform: translate(var(--tx), var(--ty)) rotate(540deg); opacity: 0; }
+}
+
+.confetti-piece {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  animation: confetti-fall 1.6s ease-out forwards;
+}
