@@ -1,6 +1,8 @@
+import { useContext } from 'react'
 import type { Tile, DragSrc } from '../types'
-import { NUM_COLOR } from '../types'
 import type { DragState } from '../hooks/useDrag'
+import { TileStyleContext } from '../lib/themes'
+import { TileFace } from './TileFace'
 
 interface Props {
   tiles: Tile[]
@@ -11,6 +13,7 @@ interface Props {
 }
 
 export function Rack({ tiles, drag, onTileMouseDown, onRackEnter, onRackLeave }: Props) {
+  const tileStyle = useContext(TileStyleContext)
   const draggingRackIdx = drag?.src.from === 'rack' ? drag.src.rackIdx : undefined
 
   return (
@@ -33,27 +36,14 @@ export function Rack({ tiles, drag, onTileMouseDown, onRackEnter, onRackLeave }:
         {tiles.map((tile, i) => (
           <div
             key={i}
-            style={{
-              width: 46,
-              height: 58,
-              borderRadius: 8,
-              background: 'var(--tile-bg)',
-              boxShadow: 'var(--tile-shadow)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: 20,
-              fontWeight: 500,
-              color: NUM_COLOR[tile.c],
-              cursor: 'grab',
-              userSelect: 'none',
-              opacity: draggingRackIdx === i ? 0.35 : 1,
-              transform: draggingRackIdx === i ? 'scale(0.93)' : 'none',
-              transition: 'background 0.15s ease, opacity 0.1s ease',
-            }}
+            style={{ cursor: 'grab', userSelect: 'none' }}
             onMouseDown={e => onTileMouseDown(e, tile, { from: 'rack', rackIdx: i })}
           >
-            <span style={{ pointerEvents: 'none', userSelect: 'none' }}>{tile.n}</span>
+            <TileFace
+              tile={tile}
+              tileStyle={tileStyle}
+              dimmed={draggingRackIdx === i}
+            />
           </div>
         ))}
       </div>

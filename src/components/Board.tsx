@@ -1,6 +1,8 @@
+import { useContext } from 'react'
 import type { Grid, DragSrc, Tile } from '../types'
-import { NUM_COLOR } from '../types'
 import type { DragState } from '../hooks/useDrag'
+import { TileStyleContext } from '../lib/themes'
+import { TileFace } from './TileFace'
 
 interface Props {
   grid: Grid
@@ -14,6 +16,8 @@ interface Props {
 }
 
 export function Board({ grid, drag, hoveredCell, onTileMouseDown, onCellEnter, onCellLeave, invalidCells, lockInCells }: Props) {
+  const tileStyle = useContext(TileStyleContext)
+
   const rows = grid.length
   const cols = grid[0]?.length ?? 0
   if (rows === 0 || cols === 0) return null
@@ -36,34 +40,19 @@ export function Board({ grid, drag, hoveredCell, onTileMouseDown, onCellEnter, o
         cells.push(
           <div
             key={isInvalid ? `${r}-${c}-${shakeKey}` : `${r}-${c}`}
-            className={isInvalid ? 'tile-invalid' : isLockIn ? 'tile-lockin' : ''}
-            style={{
-              width: 46,
-              height: 58,
-              borderRadius: 8,
-              background: isInvalid ? 'var(--invalid-bg)' : 'var(--tile-bg)',
-              boxShadow: isInvalid ? '0 0 0 1.5px var(--invalid-ring)' : 'var(--tile-shadow)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: 20,
-              fontWeight: 500,
-              color: NUM_COLOR[tile.c],
-              cursor: 'grab',
-              userSelect: 'none',
-              opacity: isDraggingSrc ? 0.35 : 1,
-              transform: isDraggingSrc ? 'scale(0.93)' : undefined,
-              animation: !isInvalid && !isLockIn ? 'tile-land 0.2s ease' : undefined,
-              outline: hovered && !isDraggingSrc ? '2px solid #378ADD' : 'none',
-              outlineOffset: -2,
-              transition: 'background 0.15s ease, opacity 0.1s ease',
-              boxSizing: 'border-box',
-            }}
+            style={{ cursor: 'grab', userSelect: 'none' }}
             onMouseDown={e => onTileMouseDown(e, tile, { from: 'grid', row: r, col: c })}
             onMouseEnter={() => onCellEnter(r, c)}
             onMouseLeave={onCellLeave}
           >
-            <span style={{ pointerEvents: 'none', userSelect: 'none' }}>{tile.n}</span>
+            <TileFace
+              tile={tile}
+              tileStyle={tileStyle}
+              invalid={isInvalid}
+              lockIn={isLockIn}
+              dimmed={isDraggingSrc}
+              hovered={hovered && !isDraggingSrc}
+            />
           </div>,
         )
       } else {

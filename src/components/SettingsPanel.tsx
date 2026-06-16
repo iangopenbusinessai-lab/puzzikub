@@ -1,3 +1,8 @@
+import {
+  THEME_PRESETS, PRESET_LABELS, BACKGROUND_LABELS, TILE_LABELS,
+} from '../lib/themes'
+import type { BackgroundStyle, TileStyle, ThemePreset } from '../lib/themes'
+
 type ThemeOption = 'light' | 'dark' | 'system'
 
 interface Props {
@@ -5,8 +10,11 @@ interface Props {
   setTheme: (t: ThemeOption) => void
   soundEnabled: boolean
   setSoundEnabled: (v: boolean) => void
-  veilEnabled: boolean
-  setVeilEnabled: (v: boolean) => void
+  background: BackgroundStyle
+  tileStyle: TileStyle
+  onSelectPreset: (p: ThemePreset) => void
+  onBackgroundChange: (b: BackgroundStyle) => void
+  onTileStyleChange: (t: TileStyle) => void
   onClose: () => void
 }
 
@@ -16,7 +24,27 @@ const THEME_OPTIONS: { value: ThemeOption; label: string }[] = [
   { value: 'dark', label: 'Dark' },
 ]
 
-export function SettingsPanel({ theme, setTheme, soundEnabled, setSoundEnabled, veilEnabled, setVeilEnabled, onClose }: Props) {
+const PRESETS = Object.keys(THEME_PRESETS) as ThemePreset[]
+
+const selectStyle: React.CSSProperties = {
+  padding: '6px 10px',
+  borderRadius: 8,
+  border: '0.5px solid var(--border)',
+  fontSize: 13,
+  background: 'var(--surface)',
+  color: 'var(--text-primary)',
+  width: '100%',
+  boxSizing: 'border-box',
+  cursor: 'pointer',
+}
+
+export function SettingsPanel({
+  theme, setTheme,
+  soundEnabled, setSoundEnabled,
+  background, tileStyle,
+  onSelectPreset, onBackgroundChange, onTileStyleChange,
+  onClose,
+}: Props) {
   return (
     <>
       <div
@@ -25,16 +53,11 @@ export function SettingsPanel({ theme, setTheme, soundEnabled, setSoundEnabled, 
       />
 
       <div style={{
-        position: 'fixed',
-        right: 0,
-        top: 0,
-        height: '100vh',
-        width: 300,
+        position: 'fixed', right: 0, top: 0, height: '100vh', width: 300,
         background: 'var(--surface)',
         boxShadow: '-4px 0 24px rgba(0,0,0,0.12)',
         zIndex: 100,
-        display: 'flex',
-        flexDirection: 'column',
+        display: 'flex', flexDirection: 'column',
         transition: 'transform 0.2s ease',
       }}>
 
@@ -46,41 +69,89 @@ export function SettingsPanel({ theme, setTheme, soundEnabled, setSoundEnabled, 
           <button
             onClick={onClose}
             style={{
-              width: 28,
-              height: 28,
-              borderRadius: '50%',
-              background: 'var(--cell-empty)',
-              border: 'none',
-              fontSize: 16,
-              cursor: 'pointer',
-              color: 'var(--text-secondary)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              padding: 0,
-              lineHeight: 1,
+              width: 28, height: 28, borderRadius: '50%',
+              background: 'var(--cell-empty)', border: 'none',
+              fontSize: 16, cursor: 'pointer', color: 'var(--text-secondary)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              padding: 0, lineHeight: 1,
             }}
           >×</button>
         </div>
 
         {/* Scrollable content */}
         <div style={{
-          flex: 1,
-          overflowY: 'auto',
-          padding: 20,
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 24,
+          flex: 1, overflowY: 'auto', padding: 20,
+          display: 'flex', flexDirection: 'column', gap: 24,
         }}>
 
-          {/* Appearance */}
+          {/* Theme */}
+          <div>
+            <SectionLabel>Theme</SectionLabel>
+
+            {/* Preset pills */}
+            <div style={{
+              display: 'flex', border: '0.5px solid var(--border)',
+              borderRadius: 10, overflow: 'hidden', marginBottom: 12,
+            }}>
+              {PRESETS.map(p => {
+                const cfg = THEME_PRESETS[p]
+                const active = cfg.background === background && cfg.tile === tileStyle
+                return (
+                  <button
+                    key={p}
+                    onClick={() => onSelectPreset(p)}
+                    style={{
+                      flex: 1, padding: '6px 4px',
+                      border: 'none', fontSize: 11, cursor: 'pointer',
+                      background: active ? 'var(--cell-empty)' : 'var(--surface)',
+                      color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
+                      fontWeight: active ? 500 : 400,
+                    }}
+                  >
+                    {PRESET_LABELS[p]}
+                  </button>
+                )
+              })}
+            </div>
+
+            {/* Divider */}
+            <div style={{ height: '0.5px', background: 'var(--border)', margin: '4px 0 12px' }} />
+
+            {/* Background select */}
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 4 }}>Background</div>
+              <select
+                value={background}
+                onChange={e => onBackgroundChange(e.target.value as BackgroundStyle)}
+                style={selectStyle}
+              >
+                {(Object.keys(BACKGROUND_LABELS) as BackgroundStyle[]).map(b => (
+                  <option key={b} value={b}>{BACKGROUND_LABELS[b]}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Tile style select */}
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 4 }}>Tile style</div>
+              <select
+                value={tileStyle}
+                onChange={e => onTileStyleChange(e.target.value as TileStyle)}
+                style={selectStyle}
+              >
+                {(Object.keys(TILE_LABELS) as TileStyle[]).map(t => (
+                  <option key={t} value={t}>{TILE_LABELS[t]}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Appearance (light/dark) */}
           <div>
             <SectionLabel>Appearance</SectionLabel>
             <div style={{
-              display: 'flex',
-              border: '0.5px solid var(--border)',
-              borderRadius: 10,
-              overflow: 'hidden',
+              display: 'flex', border: '0.5px solid var(--border)',
+              borderRadius: 10, overflow: 'hidden',
             }}>
               {THEME_OPTIONS.map(opt => {
                 const active = theme === opt.value
@@ -89,11 +160,7 @@ export function SettingsPanel({ theme, setTheme, soundEnabled, setSoundEnabled, 
                     key={opt.value}
                     onClick={() => setTheme(opt.value)}
                     style={{
-                      flex: 1,
-                      padding: 8,
-                      border: 'none',
-                      fontSize: 13,
-                      cursor: 'pointer',
+                      flex: 1, padding: 8, border: 'none', fontSize: 13, cursor: 'pointer',
                       background: active ? 'var(--cell-empty)' : 'var(--surface)',
                       color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
                       fontWeight: active ? 500 : 400,
@@ -103,15 +170,6 @@ export function SettingsPanel({ theme, setTheme, soundEnabled, setSoundEnabled, 
                   </button>
                 )
               })}
-            </div>
-          </div>
-
-          {/* Background */}
-          <div>
-            <SectionLabel>Background</SectionLabel>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <span style={{ fontSize: 13, color: 'var(--text-primary)' }}>Animated background</span>
-              <Toggle checked={veilEnabled} onChange={setVeilEnabled} />
             </div>
           </div>
 
@@ -138,12 +196,8 @@ export function SettingsPanel({ theme, setTheme, soundEnabled, setSoundEnabled, 
 
         {/* Footer */}
         <div style={{
-          padding: 20,
-          borderTop: '0.5px solid var(--border)',
-          textAlign: 'center',
-          fontSize: 11,
-          color: 'var(--text-secondary)',
-          flexShrink: 0,
+          padding: 20, borderTop: '0.5px solid var(--border)',
+          textAlign: 'center', fontSize: 11, color: 'var(--text-secondary)', flexShrink: 0,
         }}>
           Puzzikub v0.1
         </div>
@@ -156,12 +210,8 @@ export function SettingsPanel({ theme, setTheme, soundEnabled, setSoundEnabled, 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
     <div style={{
-      fontSize: 11,
-      fontWeight: 500,
-      textTransform: 'uppercase',
-      letterSpacing: '0.8px',
-      color: 'var(--text-secondary)',
-      marginBottom: 10,
+      fontSize: 11, fontWeight: 500, textTransform: 'uppercase',
+      letterSpacing: '0.8px', color: 'var(--text-secondary)', marginBottom: 10,
     }}>
       {children}
     </div>
@@ -178,20 +228,13 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean
         style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }}
       />
       <div style={{
-        width: 40,
-        height: 24,
-        borderRadius: 12,
+        width: 40, height: 24, borderRadius: 12,
         background: checked ? '#34C759' : 'var(--cell-empty)',
-        transition: 'background 0.2s',
-        position: 'relative',
+        transition: 'background 0.2s', position: 'relative',
       }}>
         <div style={{
-          position: 'absolute',
-          top: 2,
-          width: 20,
-          height: 20,
-          borderRadius: '50%',
-          background: '#fff',
+          position: 'absolute', top: 2, width: 20, height: 20,
+          borderRadius: '50%', background: '#fff',
           boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
           transform: checked ? 'translateX(16px)' : 'translateX(2px)',
           transition: 'transform 0.2s',

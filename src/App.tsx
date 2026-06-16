@@ -1,6 +1,10 @@
 import { useState, useEffect } from 'react'
 import type { Puzzle, Screen } from './types'
 import { loadLibrary, saveLibrary } from './lib/storage'
+import {
+  THEME_PRESETS, TileStyleContext,
+} from './lib/themes'
+import type { BackgroundStyle, TileStyle, ThemePreset } from './lib/themes'
 import { LibraryScreen } from './screens/LibraryScreen'
 import { PlayScreen } from './screens/PlayScreen'
 import { EditorScreen } from './screens/EditorScreen'
@@ -15,6 +19,43 @@ function resolveTheme(t: ThemeOption): 'light' | 'dark' {
   return t
 }
 
+function BackgroundLayer({ bg }: { bg: BackgroundStyle }) {
+  if (bg === 'glass-glow') return (
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 0, pointerEvents: 'none', overflow: 'hidden',
+      background: 'linear-gradient(135deg, #1a1530, #2d1f4a)',
+    }}>
+      <div style={{
+        position: 'absolute', top: '20%', left: '30%',
+        width: 400, height: 400, borderRadius: '50%',
+        background: 'radial-gradient(circle, rgba(120,60,200,0.4), transparent 70%)',
+        filter: 'blur(60px)',
+      }} />
+    </div>
+  )
+  if (bg === 'wood-grain') return (
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 0, pointerEvents: 'none',
+      background: 'linear-gradient(135deg, #3d2817, #5a3a22)',
+    }} />
+  )
+  if (bg === 'neon-veil') return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 0, pointerEvents: 'none' }}>
+      <DarkVeil speed={0.4} />
+    </div>
+  )
+  if (bg === 'paper-grain') return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 0, pointerEvents: 'none' }}>
+      <div style={{ position: 'absolute', inset: 0, background: '#e8e0d0' }} />
+      <div style={{
+        position: 'absolute', inset: 0, opacity: 0.06,
+        backgroundImage: 'repeating-linear-gradient(0deg, #000 0px, transparent 1px, transparent 3px)',
+      }} />
+    </div>
+  )
+  return null
+}
+
 function App() {
   const [screen, setScreen] = useState<Screen>('play')
   const [library, setLibrary] = useState<Puzzle[]>(loadLibrary)
@@ -24,8 +65,11 @@ function App() {
   const [showTutorial, setShowTutorial] = useState(
     () => !localStorage.getItem('puzzikub_seen_tutorial')
   )
-  const [veilEnabled, setVeilEnabled] = useState(
-    () => localStorage.getItem('puzzikub_veil') === 'true'
+  const [background, setBackground] = useState<BackgroundStyle>(
+    () => (localStorage.getItem('puzzikub_background') as BackgroundStyle | null) ?? 'none'
+  )
+  const [tileStyle, setTileStyle] = useState<TileStyle>(
+    () => (localStorage.getItem('puzzikub_tile_style') as TileStyle | null) ?? 'plain'
   )
 
   useEffect(() => {
@@ -41,13 +85,23 @@ function App() {
   }, [theme])
 
   useEffect(() => {
-    localStorage.setItem('puzzikub_veil', String(veilEnabled))
-    if (veilEnabled) {
+    localStorage.setItem('puzzikub_background', background)
+    if (background !== 'none') {
       document.documentElement.style.setProperty('--bg', 'transparent')
     } else {
       document.documentElement.style.removeProperty('--bg')
     }
-  }, [veilEnabled])
+  }, [background])
+
+  useEffect(() => {
+    localStorage.setItem('puzzikub_tile_style', tileStyle)
+  }, [tileStyle])
+
+  function selectPreset(p: ThemePreset) {
+    const cfg = THEME_PRESETS[p]
+    setBackground(cfg.background)
+    setTileStyle(cfg.tile)
+  }
 
   function updateLibrary(updated: Puzzle[]) {
     setLibrary(updated)
@@ -70,61 +124,60 @@ function App() {
 
   return (
     <>
-      {/* Animated background canvas — sits at z-index 0, below all content */}
-      {veilEnabled && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 0, pointerEvents: 'none' }}>
-          <DarkVeil speed={0.4} />
+      <BackgroundLayer bg={background} />
+
+      <TileStyleContext.Provider value={tileStyle}>
+        <div style={{ position: 'relative', zIndex: 1 }}>
+          {screen === 'play' && (
+            <PlayScreen
+              activeScreen={screen}
+              onNav={setScreen}
+              soundEnabled={soundEnabled}
+              onShowSettings={() => setSettingsOpen(true)}
+              onShowTutorial={() => setShowTutorial(true)}
+            />
+          )}
+          {screen === 'library' && (
+            <LibraryScreen
+              puzzles={library}
+              onPlay={handlePlay}
+              onEdit={() => setScreen('editor')}
+              onSaveGenerated={p => updateLibrary([...library, p])}
+              onDelete={id => updateLibrary(library.filter(p => p.id !== id))}
+              activeScreen={screen}
+              onNav={setScreen}
+              onShowSettings={() => setSettingsOpen(true)}
+              onShowTutorial={() => setShowTutorial(true)}
+            />
+          )}
+          {screen === 'editor' && (
+            <EditorScreen
+              onSave={handleSavePuzzle}
+              onBack={() => setScreen('library')}
+              activeScreen={screen}
+              onNav={setScreen}
+              onShowSettings={() => setSettingsOpen(true)}
+              onShowTutorial={() => setShowTutorial(true)}
+            />
+          )}
+
+          {settingsOpen && (
+            <SettingsPanel
+              theme={theme}
+              setTheme={setTheme}
+              soundEnabled={soundEnabled}
+              setSoundEnabled={setSoundEnabled}
+              background={background}
+              tileStyle={tileStyle}
+              onSelectPreset={selectPreset}
+              onBackgroundChange={setBackground}
+              onTileStyleChange={setTileStyle}
+              onClose={() => setSettingsOpen(false)}
+            />
+          )}
+          {showTutorial && <Tutorial onDismiss={dismissTutorial} />}
         </div>
-      )}
-
-      {/* App content — z-index 1 ensures it renders above the canvas */}
-      <div style={{ position: 'relative', zIndex: 1 }}>
-        {screen === 'play' && (
-          <PlayScreen
-            activeScreen={screen}
-            onNav={setScreen}
-            soundEnabled={soundEnabled}
-            onShowSettings={() => setSettingsOpen(true)}
-            onShowTutorial={() => setShowTutorial(true)}
-          />
-        )}
-        {screen === 'library' && (
-          <LibraryScreen
-            puzzles={library}
-            onPlay={handlePlay}
-            onEdit={() => setScreen('editor')}
-            onSaveGenerated={p => updateLibrary([...library, p])}
-            onDelete={id => updateLibrary(library.filter(p => p.id !== id))}
-            activeScreen={screen}
-            onNav={setScreen}
-            onShowSettings={() => setSettingsOpen(true)}
-            onShowTutorial={() => setShowTutorial(true)}
-          />
-        )}
-        {screen === 'editor' && (
-          <EditorScreen
-            onSave={handleSavePuzzle}
-            onBack={() => setScreen('library')}
-            activeScreen={screen}
-            onNav={setScreen}
-            onShowSettings={() => setSettingsOpen(true)}
-            onShowTutorial={() => setShowTutorial(true)}
-          />
-        )}
-
-        {settingsOpen && (
-          <SettingsPanel
-            theme={theme}
-            setTheme={setTheme}
-            soundEnabled={soundEnabled}
-            setSoundEnabled={setSoundEnabled}
-            veilEnabled={veilEnabled}
-            setVeilEnabled={setVeilEnabled}
-            onClose={() => setSettingsOpen(false)}
-          />
-        )}
-        {showTutorial && <Tutorial onDismiss={dismissTutorial} />}
-      </div>
+      </TileStyleContext.Provider>
     </>
   )
 }

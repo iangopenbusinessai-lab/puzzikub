@@ -104,3 +104,13 @@ body {
   border-radius: 2px;
   animation: confetti-fall 1.6s ease-out forwards;
 }
+
+@keyframes tile-lockin-ceramic {
+  0%   { box-shadow: 0 3px 0 rgba(0,0,0,0.25), 0 4px 6px rgba(0,0,0,0.3); }
+  30%  { box-shadow: 0 3px 0 rgba(0,0,0,0.25), 0 4px 6px rgba(0,0,0,0.3), 0 0 0 2px #d4af37; }
+  100% { box-shadow: 0 3px 0 rgba(0,0,0,0.25), 0 4px 6px rgba(0,0,0,0.3); }
+}
+
+.tile-lockin-ceramic {
+  animation: tile-lockin-ceramic 0.6s ease;
+}
