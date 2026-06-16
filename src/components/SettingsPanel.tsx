@@ -5,6 +5,8 @@ interface Props {
   setTheme: (t: ThemeOption) => void
   soundEnabled: boolean
   setSoundEnabled: (v: boolean) => void
+  veilEnabled: boolean
+  setVeilEnabled: (v: boolean) => void
   onClose: () => void
 }
 
@@ -14,7 +16,7 @@ const THEME_OPTIONS: { value: ThemeOption; label: string }[] = [
   { value: 'dark', label: 'Dark' },
 ]
 
-export function SettingsPanel({ theme, setTheme, soundEnabled, setSoundEnabled, onClose }: Props) {
+export function SettingsPanel({ theme, setTheme, soundEnabled, setSoundEnabled, veilEnabled, setVeilEnabled, onClose }: Props) {
   return (
     <>
       <div
@@ -104,39 +106,21 @@ export function SettingsPanel({ theme, setTheme, soundEnabled, setSoundEnabled, 
             </div>
           </div>
 
+          {/* Background */}
+          <div>
+            <SectionLabel>Background</SectionLabel>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: 13, color: 'var(--text-primary)' }}>Animated background</span>
+              <Toggle checked={veilEnabled} onChange={setVeilEnabled} />
+            </div>
+          </div>
+
           {/* Sound */}
           <div>
             <SectionLabel>Sound</SectionLabel>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <span style={{ fontSize: 13, color: 'var(--text-primary)' }}>Snap sound</span>
-              <label style={{ cursor: 'pointer', display: 'inline-block', position: 'relative' }}>
-                <input
-                  type="checkbox"
-                  checked={soundEnabled}
-                  onChange={e => setSoundEnabled(e.target.checked)}
-                  style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }}
-                />
-                <div style={{
-                  width: 40,
-                  height: 24,
-                  borderRadius: 12,
-                  background: soundEnabled ? '#34C759' : 'var(--cell-empty)',
-                  transition: 'background 0.2s',
-                  position: 'relative',
-                }}>
-                  <div style={{
-                    position: 'absolute',
-                    top: 2,
-                    width: 20,
-                    height: 20,
-                    borderRadius: '50%',
-                    background: '#fff',
-                    boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-                    transform: soundEnabled ? 'translateX(16px)' : 'translateX(2px)',
-                    transition: 'transform 0.2s',
-                  }} />
-                </div>
-              </label>
+              <Toggle checked={soundEnabled} onChange={setSoundEnabled} />
             </div>
           </div>
 
@@ -181,6 +165,39 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
     }}>
       {children}
     </div>
+  )
+}
+
+function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <label style={{ cursor: 'pointer', display: 'inline-block', position: 'relative' }}>
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={e => onChange(e.target.checked)}
+        style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }}
+      />
+      <div style={{
+        width: 40,
+        height: 24,
+        borderRadius: 12,
+        background: checked ? '#34C759' : 'var(--cell-empty)',
+        transition: 'background 0.2s',
+        position: 'relative',
+      }}>
+        <div style={{
+          position: 'absolute',
+          top: 2,
+          width: 20,
+          height: 20,
+          borderRadius: '50%',
+          background: '#fff',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+          transform: checked ? 'translateX(16px)' : 'translateX(2px)',
+          transition: 'transform 0.2s',
+        }} />
+      </div>
+    </label>
   )
 }
 
