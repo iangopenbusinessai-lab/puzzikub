@@ -77,27 +77,23 @@ function buildGroups(grid: Grid): GroupMaps {
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
+function isCovered(hGroup: Group | null, vGroup: Group | null): boolean {
+  if (hGroup && hGroup.cells.length >= 3 && (isValidRun(hGroup.tiles) || isValidGroup(hGroup.tiles))) return true
+  if (vGroup && vGroup.cells.length >= 3 && (isValidRun(vGroup.tiles) || isValidGroup(vGroup.tiles))) return true
+  return false
+}
+
 export function validateGrid(grid: Grid): boolean {
   if (!grid.some(row => row.some(t => t !== null))) return false
 
   const rows = grid.length
   const cols = grid[0]?.length ?? 0
-  const { hGroups, vGroups, hOf, vOf } = buildGroups(grid)
-
-  for (const g of hGroups) {
-    if (g.tiles.length >= 3 && !isValidRun(g.tiles) && !isValidGroup(g.tiles)) return false
-  }
-
-  for (const g of vGroups) {
-    if (g.tiles.length >= 3 && !isValidRun(g.tiles) && !isValidGroup(g.tiles)) return false
-  }
+  const { hOf, vOf } = buildGroups(grid)
 
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       if (!grid[r][c]) continue
-      const hLen = hOf[r][c]?.cells.length ?? 0
-      const vLen = vOf[r][c]?.cells.length ?? 0
-      if (hLen < 3 && vLen < 3) return false
+      if (!isCovered(hOf[r][c], vOf[r][c])) return false
     }
   }
 
@@ -110,26 +106,12 @@ export function getInvalidCells(grid: Grid): Set<string> {
 
   const rows = grid.length
   const cols = grid[0]?.length ?? 0
-  const { hGroups, vGroups, hOf, vOf } = buildGroups(grid)
-
-  for (const g of hGroups) {
-    if (g.tiles.length >= 3 && !isValidRun(g.tiles) && !isValidGroup(g.tiles)) {
-      for (const { r, c } of g.cells) invalid.add(`${r},${c}`)
-    }
-  }
-
-  for (const g of vGroups) {
-    if (g.tiles.length >= 3 && !isValidRun(g.tiles) && !isValidGroup(g.tiles)) {
-      for (const { r, c } of g.cells) invalid.add(`${r},${c}`)
-    }
-  }
+  const { hOf, vOf } = buildGroups(grid)
 
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       if (!grid[r][c]) continue
-      const hLen = hOf[r][c]?.cells.length ?? 0
-      const vLen = vOf[r][c]?.cells.length ?? 0
-      if (hLen < 3 && vLen < 3) invalid.add(`${r},${c}`)
+      if (!isCovered(hOf[r][c], vOf[r][c])) invalid.add(`${r},${c}`)
     }
   }
 

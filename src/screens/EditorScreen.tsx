@@ -32,6 +32,8 @@ export function EditorScreen({ onSave, onBack }: Props) {
   const [pickerC, setPickerC] = useState<Tile['c']>('r')
 
   return (
+    <div style={{ background: 'var(--bg)', minHeight: '100vh', transition: 'background 0.15s ease' }}>
+    <div style={{ maxWidth: 720, margin: '0 auto', padding: '0 20px' }}>
     <div className="editor-screen">
       <header className="editor-screen__header">
         <button className="btn-back" onClick={onBack}>← Library</button>
@@ -92,6 +94,8 @@ export function EditorScreen({ onSave, onBack }: Props) {
         <button onClick={reset}>Reset</button>
         <button onClick={() => onSave(buildPuzzle())} disabled={!isValid}>Save Puzzle</button>
       </div>
+    </div>
+    </div>
     </div>
   )
 }

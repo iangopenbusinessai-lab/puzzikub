@@ -81,44 +81,46 @@ export function LibraryScreen({ puzzles, onPlay, onEdit, onSaveGenerated, onDele
   }
 
   return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <span style={{ fontSize: 11, color: '#999' }}>Saved puzzles</span>
-        <button style={smallBtn()} onClick={onEdit}>+ New Puzzle</button>
-      </div>
-
-      <div style={genRowStyle}>
-        <span style={{ fontSize: 11, color: '#999' }}>Generate:</span>
-        {DIFFS.map(d => (
-          <button key={d} style={smallBtn()} onClick={() => { const p = generatePuzzle(d); if (p) onSaveGenerated(p) }}>
-            {d[0].toUpperCase() + d.slice(1)}
-          </button>
-        ))}
-      </div>
-
-      <div style={filterRowStyle}>
-        {(['all', ...DIFFS] as Filter[]).map(f => (
-          <button key={f} style={pillStyle(filter === f)} onClick={() => setFilter(f)}>
-            {f === 'all' ? 'All' : f[0].toUpperCase() + f.slice(1)}
-          </button>
-        ))}
-      </div>
-
-      {visible.length === 0 && (
-        <div style={{ fontSize: 13, color: '#aaa', padding: '12px 0' }}>No puzzles found.</div>
-      )}
-
-      {visible.map(p => (
-        <div key={p.id} style={rowStyle}>
-          <span style={{ ...badgeBase, ...DIFF_BADGE[p.diff] }}>{p.diff}</span>
-          <span style={{ flex: 1, fontSize: 14, fontWeight: 500 }}>{p.name}</span>
-          {p.generated && (
-            <span style={{ fontSize: 10, color: '#aaa' }}>auto</span>
-          )}
-          <button style={smallBtn()} onClick={() => onPlay(p)}>Play</button>
-          <button style={smallBtn(true)} onClick={() => onDelete(p.id)}>Delete</button>
+    <div style={{ background: 'var(--bg)', minHeight: '100vh', transition: 'background 0.15s ease' }}>
+      <div style={{ maxWidth: 720, margin: '0 auto', padding: '0 20px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, paddingTop: 20 }}>
+          <span style={{ fontSize: 11, color: '#999' }}>Saved puzzles</span>
+          <button style={smallBtn()} onClick={onEdit}>+ New Puzzle</button>
         </div>
-      ))}
+
+        <div style={genRowStyle}>
+          <span style={{ fontSize: 11, color: '#999' }}>Generate:</span>
+          {DIFFS.map(d => (
+            <button key={d} style={smallBtn()} onClick={() => { const p = generatePuzzle(d); if (p) onSaveGenerated(p) }}>
+              {d[0].toUpperCase() + d.slice(1)}
+            </button>
+          ))}
+        </div>
+
+        <div style={filterRowStyle}>
+          {(['all', ...DIFFS] as Filter[]).map(f => (
+            <button key={f} style={pillStyle(filter === f)} onClick={() => setFilter(f)}>
+              {f === 'all' ? 'All' : f[0].toUpperCase() + f.slice(1)}
+            </button>
+          ))}
+        </div>
+
+        {visible.length === 0 && (
+          <div style={{ fontSize: 13, color: '#aaa', padding: '12px 0' }}>No puzzles found.</div>
+        )}
+
+        {visible.map(p => (
+          <div key={p.id} style={rowStyle}>
+            <span style={{ ...badgeBase, ...DIFF_BADGE[p.diff] }}>{p.diff}</span>
+            <span style={{ flex: 1, fontSize: 14, fontWeight: 500 }}>{p.name}</span>
+            {p.generated && (
+              <span style={{ fontSize: 10, color: '#aaa' }}>auto</span>
+            )}
+            <button style={smallBtn()} onClick={() => onPlay(p)}>Play</button>
+            <button style={smallBtn(true)} onClick={() => onDelete(p.id)}>Delete</button>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
