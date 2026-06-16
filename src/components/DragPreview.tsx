@@ -1,33 +1,24 @@
 import type { DragState } from '../hooks/useDrag'
-import { NUM_COLOR } from '../types'
+import type { TileStyle } from '../lib/themes'
+import { TileFace } from './TileFace'
 
 interface Props {
   drag: DragState
   previewId?: string
+  tileStyle: TileStyle
 }
 
-export function DragPreview({ drag, previewId }: Props) {
+export function DragPreview({ drag, previewId, tileStyle }: Props) {
   return (
     <div id={previewId} style={{
       position: 'fixed',
       left: drag.x - 23,
       top: drag.y - 29,
-      width: 46,
-      height: 58,
-      borderRadius: 8,
-      background: 'var(--tile-bg)',
-      boxShadow: '0 4px 12px rgba(0,0,0,0.25)',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      fontSize: 20,
-      fontWeight: 500,
-      color: NUM_COLOR[drag.tile.c],
       pointerEvents: 'none',
       zIndex: 9999,
       userSelect: 'none',
     }}>
-      {drag.tile.n}
+      <TileFace tile={drag.tile} tileStyle={tileStyle} />
     </div>
   )
 }

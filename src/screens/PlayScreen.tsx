@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
+import { useEffect, useState, useCallback, useMemo, useRef, useContext } from 'react'
 import { usePlayState } from '../hooks/usePlayState'
 import { useDrag } from '../hooks/useDrag'
 import { generatePuzzle } from '../lib/generator'
@@ -9,6 +9,7 @@ import { Rack } from '../components/Rack'
 import { DragPreview } from '../components/DragPreview'
 import { NavBar } from '../components/NavBar'
 import type { Screen, Difficulty, Grid } from '../types'
+import { TileStyleContext } from '../lib/themes'
 
 const DIFFS: Difficulty[] = ['easy', 'medium', 'hard']
 const CONFETTI_COLORS = ['#A32D2D', '#185FA5', '#BA7517', '#222222']
@@ -24,6 +25,7 @@ interface Props {
 export function PlayScreen({ activeScreen, onNav, soundEnabled, onShowSettings, onShowTutorial }: Props) {
   const { grid, rack, moves, undos, won, optimalMoves, invalidCells, drop, undo, reset, loadPuzzle } = usePlayState()
   const { drag, startDrag, updatePos, endDrag } = useDrag()
+  const tileStyle = useContext(TileStyleContext)
 
   const [diff, setDiff] = useState<Difficulty>('easy')
   const [hoverTarget, setHoverTarget] = useState<
@@ -205,7 +207,7 @@ export function PlayScreen({ activeScreen, onNav, soundEnabled, onShowSettings, 
         )}
       </div>
 
-      {drag && <DragPreview drag={drag} />}
+      {drag && <DragPreview drag={drag} tileStyle={tileStyle} />}
 
       {showConfetti && (
         <div
