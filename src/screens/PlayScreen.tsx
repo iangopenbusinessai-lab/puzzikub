@@ -5,28 +5,18 @@ import { generatePuzzle } from '../lib/generator'
 import { Board } from '../components/Board'
 import { Rack } from '../components/Rack'
 import { DragPreview } from '../components/DragPreview'
-import { SettingsPanel } from '../components/SettingsPanel'
-import { Tutorial } from '../components/Tutorial'
+import { NavBar } from '../components/NavBar'
 import type { Screen, Difficulty } from '../types'
 
-type ThemeOption = 'light' | 'dark' | 'system'
+const DIFFS: Difficulty[] = ['easy', 'medium', 'hard']
 
 interface Props {
   activeScreen: Screen
   onNav: (s: Screen) => void
-  theme: ThemeOption
-  setTheme: (t: ThemeOption) => void
   soundEnabled: boolean
-  setSoundEnabled: (v: boolean) => void
+  onShowSettings: () => void
+  onShowTutorial: () => void
 }
-
-const DIFFS: Difficulty[] = ['easy', 'medium', 'hard']
-
-const NAV: { label: string; screen: Screen }[] = [
-  { label: 'Play', screen: 'play' },
-  { label: 'Library', screen: 'library' },
-  { label: 'Editor', screen: 'editor' },
-]
 
 let _audioCtx: AudioContext | null = null
 function getAudioCtx(): AudioContext {
@@ -50,23 +40,14 @@ function playSnap() {
   src.start()
 }
 
-export function PlayScreen({ activeScreen, onNav, theme, setTheme, soundEnabled, setSoundEnabled }: Props) {
+export function PlayScreen({ activeScreen, onNav, soundEnabled, onShowSettings, onShowTutorial }: Props) {
   const { grid, rack, moves, undos, won, optimalMoves, invalidCells, drop, undo, reset, loadPuzzle } = usePlayState()
   const { drag, startDrag, updatePos, endDrag } = useDrag()
 
   const [diff, setDiff] = useState<Difficulty>('easy')
-  const [settingsOpen, setSettingsOpen] = useState(false)
-  const [showTutorial, setShowTutorial] = useState(
-    () => !localStorage.getItem('puzzikub_seen_tutorial')
-  )
   const [hoverTarget, setHoverTarget] = useState<
     { to: 'grid'; row: number; col: number } | { to: 'rack' } | null
   >(null)
-
-  function dismissTutorial() {
-    localStorage.setItem('puzzikub_seen_tutorial', '1')
-    setShowTutorial(false)
-  }
 
   const generate = useCallback((d: Difficulty) => {
     const p = generatePuzzle(d)
@@ -110,54 +91,13 @@ export function PlayScreen({ activeScreen, onNav, theme, setTheme, soundEnabled,
   const loading = grid.length === 0
 
   return (
-    <div
-      style={{ background: 'var(--bg)', minHeight: '100vh', transition: 'background 0.15s ease' }}
-    >
-      {/* Sticky nav */}
-      <nav style={{
-        background: 'var(--surface)',
-        borderBottom: '0.5px solid var(--border)',
-        padding: '0 20px',
-        height: 48,
-        display: 'flex',
-        alignItems: 'center',
-        position: 'sticky',
-        top: 0,
-        zIndex: 10,
-        transition: 'background 0.15s ease',
-      }}>
-        <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-primary)', flex: '0 0 80px' }}>Puzzikub</span>
-        <div style={{ display: 'flex', gap: 4, flex: 1, justifyContent: 'center' }}>
-          {NAV.map(n => (
-            <button
-              key={n.screen}
-              onClick={() => onNav(n.screen)}
-              style={{
-                padding: '5px 14px',
-                borderRadius: 20,
-                border: n.screen === activeScreen ? '0.5px solid #85B7EB' : '0.5px solid transparent',
-                background: n.screen === activeScreen ? '#E8F1FB' : 'transparent',
-                color: n.screen === activeScreen ? '#185FA5' : 'var(--text-secondary)',
-                fontWeight: n.screen === activeScreen ? 600 : 400,
-                fontSize: 14,
-                cursor: 'pointer',
-              }}
-            >
-              {n.label}
-            </button>
-          ))}
-        </div>
-        <div style={{ flex: '0 0 80px', display: 'flex', justifyContent: 'flex-end', gap: 4 }}>
-          <button
-            onClick={() => setShowTutorial(true)}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, color: 'var(--text-secondary)', padding: 4 }}
-          >?</button>
-          <button
-            onClick={() => setSettingsOpen(true)}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: 'var(--text-secondary)', padding: 4 }}
-          >⚙</button>
-        </div>
-      </nav>
+    <div style={{ background: 'var(--bg)', minHeight: '100vh', transition: 'background 0.15s ease' }}>
+      <NavBar
+        activeScreen={activeScreen}
+        onNav={onNav}
+        onShowTutorial={onShowTutorial}
+        onShowSettings={onShowSettings}
+      />
 
       <div style={{ maxWidth: 720, margin: '0 auto', padding: '0 20px' }}>
 
@@ -232,18 +172,6 @@ export function PlayScreen({ activeScreen, onNav, theme, setTheme, soundEnabled,
       </div>
 
       {drag && <DragPreview drag={drag} />}
-
-      {settingsOpen && (
-        <SettingsPanel
-          theme={theme}
-          setTheme={setTheme}
-          soundEnabled={soundEnabled}
-          setSoundEnabled={setSoundEnabled}
-          onClose={() => setSettingsOpen(false)}
-        />
-      )}
-
-      {showTutorial && <Tutorial onDismiss={dismissTutorial} />}
     </div>
   )
 }

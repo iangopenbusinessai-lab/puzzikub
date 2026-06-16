@@ -1,6 +1,7 @@
 import { useState, type CSSProperties } from 'react'
-import type { Puzzle } from '../types'
+import type { Puzzle, Screen } from '../types'
 import { generatePuzzle } from '../lib/generator'
+import { NavBar } from '../components/NavBar'
 
 interface Props {
   puzzles: Puzzle[]
@@ -8,6 +9,10 @@ interface Props {
   onEdit: () => void
   onSaveGenerated: (puzzle: Puzzle) => void
   onDelete: (id: string) => void
+  activeScreen: Screen
+  onNav: (s: Screen) => void
+  onShowTutorial: () => void
+  onShowSettings: () => void
 }
 
 type Filter = 'all' | Puzzle['diff']
@@ -28,7 +33,7 @@ const badgeBase: CSSProperties = {
   display: 'inline-block',
 }
 
-export function LibraryScreen({ puzzles, onPlay, onEdit, onSaveGenerated, onDelete }: Props) {
+export function LibraryScreen({ puzzles, onPlay, onEdit, onSaveGenerated, onDelete, activeScreen, onNav, onShowTutorial, onShowSettings }: Props) {
   const [filter, setFilter] = useState<Filter>('all')
   const visible = filter === 'all' ? puzzles : puzzles.filter(p => p.diff === filter)
 
@@ -82,8 +87,14 @@ export function LibraryScreen({ puzzles, onPlay, onEdit, onSaveGenerated, onDele
 
   return (
     <div style={{ background: 'var(--bg)', minHeight: '100vh', transition: 'background 0.15s ease' }}>
+      <NavBar
+        activeScreen={activeScreen}
+        onNav={onNav}
+        onShowTutorial={onShowTutorial}
+        onShowSettings={onShowSettings}
+      />
       <div style={{ maxWidth: 720, margin: '0 auto', padding: '0 20px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, paddingTop: 20 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, paddingTop: 16 }}>
           <span style={{ fontSize: 11, color: '#999' }}>Saved puzzles</span>
           <button style={smallBtn()} onClick={onEdit}>+ New Puzzle</button>
         </div>

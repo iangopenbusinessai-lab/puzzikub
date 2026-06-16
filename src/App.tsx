@@ -4,6 +4,8 @@ import { loadLibrary, saveLibrary } from './lib/storage'
 import { LibraryScreen } from './screens/LibraryScreen'
 import { PlayScreen } from './screens/PlayScreen'
 import { EditorScreen } from './screens/EditorScreen'
+import { SettingsPanel } from './components/SettingsPanel'
+import { Tutorial } from './components/Tutorial'
 
 type ThemeOption = 'light' | 'dark' | 'system'
 
@@ -17,6 +19,10 @@ function App() {
   const [library, setLibrary] = useState<Puzzle[]>(loadLibrary)
   const [theme, setTheme] = useState<ThemeOption>('system')
   const [soundEnabled, setSoundEnabled] = useState(true)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [showTutorial, setShowTutorial] = useState(
+    () => !localStorage.getItem('puzzikub_seen_tutorial')
+  )
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', resolveTheme(theme))
@@ -44,16 +50,20 @@ function App() {
     setScreen('library')
   }
 
+  function dismissTutorial() {
+    localStorage.setItem('puzzikub_seen_tutorial', '1')
+    setShowTutorial(false)
+  }
+
   return (
     <>
       {screen === 'play' && (
         <PlayScreen
           activeScreen={screen}
           onNav={setScreen}
-          theme={theme}
-          setTheme={setTheme}
           soundEnabled={soundEnabled}
-          setSoundEnabled={setSoundEnabled}
+          onShowSettings={() => setSettingsOpen(true)}
+          onShowTutorial={() => setShowTutorial(true)}
         />
       )}
       {screen === 'library' && (
@@ -63,14 +73,33 @@ function App() {
           onEdit={() => setScreen('editor')}
           onSaveGenerated={p => updateLibrary([...library, p])}
           onDelete={id => updateLibrary(library.filter(p => p.id !== id))}
+          activeScreen={screen}
+          onNav={setScreen}
+          onShowSettings={() => setSettingsOpen(true)}
+          onShowTutorial={() => setShowTutorial(true)}
         />
       )}
       {screen === 'editor' && (
         <EditorScreen
           onSave={handleSavePuzzle}
           onBack={() => setScreen('library')}
+          activeScreen={screen}
+          onNav={setScreen}
+          onShowSettings={() => setSettingsOpen(true)}
+          onShowTutorial={() => setShowTutorial(true)}
         />
       )}
+
+      {settingsOpen && (
+        <SettingsPanel
+          theme={theme}
+          setTheme={setTheme}
+          soundEnabled={soundEnabled}
+          setSoundEnabled={setSoundEnabled}
+          onClose={() => setSettingsOpen(false)}
+        />
+      )}
+      {showTutorial && <Tutorial onDismiss={dismissTutorial} />}
     </>
   )
 }
