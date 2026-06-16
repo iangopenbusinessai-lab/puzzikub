@@ -1,82 +1,87 @@
 import { useState, useCallback } from 'react'
-import type { Tile, Grid, Puzzle } from '../types'
+import type { Tile, Puzzle, Difficulty } from '../types'
+
+function emptyGrid(rows: number, cols: number): (Tile | null)[][] {
+  return Array.from({ length: rows }, () => new Array<Tile | null>(cols).fill(null))
+}
 
 export function useEditor() {
-  const [editorSets, setEditorSets] = useState<(Tile | null)[][]>([[null, null, null]])
-  const [editorRack, setEditorRack] = useState<Tile[]>([])
+  const [grid, setGrid] = useState<(Tile | null)[][]>(() => emptyGrid(4, 6))
+  const [rack, setRack] = useState<Tile[]>([])
   const [name, setName] = useState('')
-  const [diff, setDiff] = useState<Puzzle['diff']>('easy')
-  const addSet = useCallback(() => {
-    setEditorSets(prev => [...prev, [null, null, null]])
+  const [diff, setDiff] = useState<Difficulty>('easy')
+
+  const setTileAt = useCallback((row: number, col: number, tile: Tile) => {
+    setGrid(prev => prev.map((r, ri) =>
+      ri === row ? r.map((c, ci) => (ci === col ? tile : c)) : r
+    ))
   }, [])
 
-  const removeSet = useCallback((setIdx: number) => {
-    setEditorSets(prev => prev.filter((_, i) => i !== setIdx))
+  const clearTileAt = useCallback((row: number, col: number) => {
+    setGrid(prev => prev.map((r, ri) =>
+      ri === row ? r.map((c, ci) => (ci === col ? null : c)) : r
+    ))
   }, [])
 
-  const addSlot = useCallback((setIdx: number) => {
-    setEditorSets(prev => prev.map((row, i) => (i === setIdx ? [...row, null] : row)))
+  const addRackTile = useCallback((tile: Tile) => {
+    setRack(prev => [...prev, tile])
   }, [])
 
-  const removeSlot = useCallback((setIdx: number) => {
-    setEditorSets(prev =>
-      prev.map((row, i) => (i === setIdx && row.length > 3 ? row.slice(0, -1) : row)),
-    )
+  const updateRackTile = useCallback((idx: number, tile: Tile) => {
+    setRack(prev => prev.map((t, i) => (i === idx ? tile : t)))
   }, [])
 
-  const addTileToRack = useCallback((tile: Tile) => {
-    setEditorRack(prev => [...prev, tile])
+  const removeRackTile = useCallback((idx: number) => {
+    setRack(prev => prev.filter((_, i) => i !== idx))
   }, [])
 
-  const removeTileFromRack = useCallback((idx: number) => {
-    setEditorRack(prev => prev.filter((_, i) => i !== idx))
+  const addRow = useCallback(() => {
+    setGrid(prev => {
+      const cols = prev[0]?.length ?? 6
+      return [...prev, new Array<Tile | null>(cols).fill(null)]
+    })
   }, [])
 
-  const reset = useCallback(() => {
-    setEditorSets([[null, null, null]])
-    setEditorRack([])
-    setName('')
-    setDiff('easy')
+  const addCol = useCallback(() => {
+    setGrid(prev => prev.map(r => [...r, null]))
   }, [])
 
-  const isValid = name.trim().length > 0 && editorSets.length > 0
+  const removeRow = useCallback((rowIdx: number) => {
+    setGrid(prev => prev.filter((_, i) => i !== rowIdx))
+  }, [])
 
-  const buildPuzzle = useCallback((): Puzzle => {
-    const sets = editorSets
-    const maxLen = Math.max(...sets.map(s => s.length), 3)
-    const cols = maxLen + 2
-    const rows = sets.length + 1
-    const grid: Grid = Array.from({ length: rows }, () => Array(cols).fill(null))
-    for (let i = 0; i < sets.length; i++) {
-      for (let j = 0; j < sets[i].length; j++) {
-        grid[i][j + 1] = sets[i][j]
-      }
-    }
+  const removeCol = useCallback((colIdx: number) => {
+    setGrid(prev => prev.map(r => r.filter((_, i) => i !== colIdx)))
+  }, [])
+
+  const buildPuzzle = useCallback((): Puzzle | null => {
+    if (!name.trim() || rack.length === 0) return null
     return {
       id: crypto.randomUUID(),
       name: name.trim(),
       diff,
-      grid,
-      rack: editorRack,
-      optimalMoves: editorRack.length,
+      grid: grid.map(r => [...r]),
+      rack: [...rack],
+      optimalMoves: rack.length,
       generated: false,
     }
-  }, [editorSets, editorRack, name, diff])
+  }, [grid, rack, name, diff])
+
+  const reset = useCallback(() => {
+    setGrid(emptyGrid(4, 6))
+    setRack([])
+    setName('')
+    setDiff('easy')
+  }, [])
 
   return {
-    editorSets,
-    editorRack,
-    name,
-    diff,
-    setName,
-    setDiff,
-    addSet,
-    removeSet,
-    addSlot,
-    removeSlot,
-    addTileToRack,
-    removeTileFromRack,
-    isValid,
+    grid, rack, name, diff,
+    setName, setDiff,
+    setTileAt, clearTileAt,
+    addRackTile, updateRackTile, removeRackTile,
+    addRow, addCol, removeRow, removeCol,
+    rowHasTiles: (rowIdx: number) => grid[rowIdx]?.some(t => t !== null) ?? false,
+    colHasTiles: (colIdx: number) => grid.some(r => r[colIdx] !== null),
     buildPuzzle,
     reset,
   }
