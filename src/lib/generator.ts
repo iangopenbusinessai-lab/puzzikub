@@ -1,5 +1,6 @@
 import type { Tile, Grid, Difficulty, Puzzle } from '../types'
 import { isValidRun, isValidGroup } from './validator'
+import { solve } from './solver'
 
 const COLORS: Tile['c'][] = ['r', 'b', 'a', 'k']
 
@@ -136,6 +137,22 @@ export function generatePuzzle(diff: Difficulty): Puzzle | null {
     const extSets: Tile[][] = coreSets.map(s => [...s])
     const rackTiles: Tile[] = []
 
+    // Hard mode: precompute which extension tiles are candidates for 2+ sets
+    // (ambiguous tiles). Must be done before `used` is mutated by the loop.
+    const ambiguousKeys = new Set<string>()
+    if (diff === 'hard') {
+      const keyCount = new Map<string, number>()
+      for (const s of coreSets) {
+        for (const t of singleStepExtensions(s, used)) {
+          const k = tileKey(t)
+          keyCount.set(k, (keyCount.get(k) ?? 0) + 1)
+        }
+      }
+      for (const [k, count] of keyCount) {
+        if (count >= 2) ambiguousKeys.add(k)
+      }
+    }
+
     const indices = shuffle(Array.from({ length: numSets }, (_, i) => i))
     for (const si of indices) {
       if (rackTiles.length >= numExtra) break
@@ -144,7 +161,17 @@ export function generatePuzzle(diff: Difficulty): Puzzle | null {
       const candidates = singleStepExtensions(coreSets[si], used)
       if (candidates.length === 0) continue
       const want = Math.min(2, numExtra - rackTiles.length, candidates.length)
-      for (const t of shuffle(candidates).slice(0, want)) {
+      // Hard mode: prefer ambiguous candidates (valid for 2+ sets) to create
+      // genuine placement ambiguity for the player.
+      const sorted =
+        diff === 'hard'
+          ? shuffle(candidates).sort(
+              (a, b) =>
+                (ambiguousKeys.has(tileKey(a)) ? 0 : 1) -
+                (ambiguousKeys.has(tileKey(b)) ? 0 : 1),
+            )
+          : shuffle(candidates)
+      for (const t of sorted.slice(0, want)) {
         extSets[si].push(t)
         used.add(tileKey(t))
         rackTiles.push(t)
@@ -170,12 +197,18 @@ export function generatePuzzle(diff: Difficulty): Puzzle | null {
       ...Array.from({ length: extraRows }, () => Array(grid[0].length).fill(null)),
     ]
 
+    const shuffledRack = shuffle(rackTiles)
+
+    // Verify the puzzle is actually solvable before returning it.
+    const solveResult = solve(extraGrid, shuffledRack)
+    if (!solveResult.solvable) continue
+
     return {
       id: `gen_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       name: `${diff} puzzle`,
       diff,
       grid: extraGrid,
-      rack: shuffle(rackTiles),
+      rack: shuffledRack,
       optimalMoves: rackTiles.length,
       generated: true,
     }
