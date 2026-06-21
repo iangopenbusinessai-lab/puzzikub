@@ -17,10 +17,18 @@ function shuffle<T>(arr: T[]): T[] {
   return a
 }
 
-// ── Stage 1: build solution sets ─────────────────────────────────────────────
+function tileKey(t: Tile): string {
+  return `${t.n}_${t.c}`
+}
 
-function makeRun(): Tile[] {
-  const len = randomInt(3, 5)
+// ── Stage 1: build valid solution sets ──────────────────────────────────────
+
+function makeRun(diff: Difficulty): Tile[] {
+  // Hard mode targets longer runs so splits are possible (need ≥ 7 for split)
+  const len =
+    diff === 'easy'   ? randomInt(3, 4) :
+    diff === 'medium' ? randomInt(3, 5) :
+    randomInt(5, 8)
   const c = COLORS[randomInt(0, 3)]
   const start = randomInt(1, 14 - len)
   return Array.from({ length: len }, (_, i) => ({ n: start + i, c }))
@@ -33,19 +41,17 @@ function makeGroup(): Tile[] {
   return cols.map(c => ({ n, c }))
 }
 
-function tileKey(t: Tile): string {
-  return `${t.n}_${t.c}`
-}
-
-function buildSets(numSets: number): Tile[][] | null {
+function buildSolutionSets(numSets: number, diff: Difficulty): Tile[][] | null {
   const used = new Set<string>()
   const sets: Tile[][] = []
-
   for (let i = 0; i < numSets; i++) {
     let placed = false
-    for (let attempt = 0; attempt < 50; attempt++) {
-      const tiles = Math.random() < 0.5 ? makeRun() : makeGroup()
+    for (let attempt = 0; attempt < 60; attempt++) {
+      // Hard mode: bias toward runs so splits are available
+      const wantRun = diff === 'hard' ? Math.random() < 0.7 : Math.random() < 0.5
+      const tiles = wantRun ? makeRun(diff) : makeGroup()
       if (tiles.some(t => used.has(tileKey(t)))) continue
+      if (!isValidRun(tiles) && !isValidGroup(tiles)) continue
       tiles.forEach(t => used.add(tileKey(t)))
       sets.push(tiles)
       placed = true
@@ -53,163 +59,112 @@ function buildSets(numSets: number): Tile[][] | null {
     }
     if (!placed) return null
   }
-
   return sets
 }
 
-// ── Stage 2: place sets onto grid ────────────────────────────────────────────
+// ── Stage 2: select rack tiles, keeping board sets valid ─────────────────────
 
-function buildGrid(sets: Tile[][]): Grid {
-  const maxLen = Math.max(...sets.map(s => s.length))
-  const cols = maxLen + 2
-  const rows = sets.length + 1   // extra empty row for player manoeuvring
-  const grid: Grid = Array.from({ length: rows }, () => Array(cols).fill(null))
-  for (let r = 0; r < sets.length; r++) {
-    for (let c = 0; c < sets[r].length; c++) {
-      grid[r][c + 1] = sets[r][c]  // col offset 1 for left padding
+interface RackBoard { rack: Tile[]; boardSets: Tile[][] }
+
+function selectRackAndBoard(sets: Tile[][], diff: Difficulty): RackBoard | null {
+  const rack: Tile[] = []
+  const boardSets: Tile[][] = []
+  const targetMin = diff === 'easy' ? 2 : diff === 'medium' ? 4 : 6
+  const targetMax = diff === 'easy' ? 4 : diff === 'medium' ? 7 : 12
+
+  for (const set of sets) {
+    const sorted = isValidRun(set) ? [...set].sort((a, b) => a.n - b.n) : set
+
+    // Hard: split long runs by removing middle bridge tile(s)
+    if (diff === 'hard' && isValidRun(sorted) && sorted.length >= 7) {
+      const maxRemove = Math.min(3, sorted.length - 6, targetMax - rack.length)
+      if (maxRemove >= 1) {
+        const removeCount = randomInt(1, maxRemove)
+        const mid = Math.floor(sorted.length / 2)
+        const bridgeStart = mid - Math.floor(removeCount / 2)
+        const left = sorted.slice(0, bridgeStart)
+        const right = sorted.slice(bridgeStart + removeCount)
+        if (left.length >= 3 && right.length >= 3) {
+          rack.push(...sorted.slice(bridgeStart, bridgeStart + removeCount))
+          boardSets.push(left, right)
+          continue
+        }
+      }
+    }
+
+    // Group of 4: remove one tile (any position)
+    if (isValidGroup(set) && set.length === 4 && rack.length < targetMax && Math.random() < 0.75) {
+      const idx = randomInt(0, 3)
+      rack.push(set[idx])
+      boardSets.push(set.filter((_, i) => i !== idx))
+      continue
+    }
+
+    // Run of ≥ 4: remove one endpoint
+    if (isValidRun(sorted) && sorted.length >= 4 && rack.length < targetMax) {
+      // Medium/hard: allow removing both endpoints for longer runs
+      const removeTwo = (diff !== 'easy') && sorted.length >= 5 && rack.length + 2 <= targetMax && Math.random() < 0.4
+      if (removeTwo) {
+        rack.push(sorted[0], sorted[sorted.length - 1])
+        boardSets.push(sorted.slice(1, -1))
+      } else {
+        const fromEnd = Math.random() < 0.5
+        rack.push(fromEnd ? sorted[sorted.length - 1] : sorted[0])
+        boardSets.push(fromEnd ? sorted.slice(0, -1) : sorted.slice(1))
+      }
+      continue
+    }
+
+    // Keep set whole on board
+    boardSets.push(set)
+  }
+
+  // Safety: ensure every board set is still valid
+  if (!boardSets.every(s => isValidRun(s) || isValidGroup(s))) return null
+  if (rack.length < targetMin) return null
+
+  return { rack, boardSets }
+}
+
+// ── Stage 3: lay board sets out in valid rows ────────────────────────────────
+
+function layoutGrid(boardSets: Tile[][]): Grid {
+  const grid: Grid = Array.from({ length: 6 }, () => Array(10).fill(null))
+  for (let r = 0; r < boardSets.length && r < 6; r++) {
+    for (let c = 0; c < boardSets[r].length && c + 1 < 10; c++) {
+      grid[r][c + 1] = boardSets[r][c]
     }
   }
   return grid
 }
 
-// ── Stage 3: single-step legal extensions ────────────────────────────────────
-// Only immediate neighbours — no 2-hop candidates that require a bridge tile
-// that may not exist in the rack.
-
-function singleStepExtensions(set: Tile[], used: Set<string>): Tile[] {
-  const candidates: Tile[] = []
-
-  const color = set[0].c
-  const nums = set.map(t => t.n).sort((a, b) => a - b)
-  const isRun =
-    set.every(t => t.c === color) &&
-    nums.every((n, i) => i === 0 || n === nums[i - 1] + 1)
-
-  const num = set[0].n
-  const isGroup =
-    set.every(t => t.n === num) &&
-    new Set(set.map(t => t.c)).size === set.length
-
-  if (isRun) {
-    const minN = nums[0]
-    const maxN = nums[nums.length - 1]
-    if (minN - 1 >= 1) {
-      const t: Tile = { n: minN - 1, c: color }
-      if (!used.has(tileKey(t))) candidates.push(t)
-    }
-    if (maxN + 1 <= 13) {
-      const t: Tile = { n: maxN + 1, c: color }
-      if (!used.has(tileKey(t))) candidates.push(t)
-    }
-  }
-
-  if (isGroup && set.length < 4) {
-    const existingColors = set.map(t => t.c)
-    for (const c of COLORS) {
-      if (!existingColors.includes(c)) {
-        const t: Tile = { n: num, c }
-        if (!used.has(tileKey(t))) candidates.push(t)
-      }
-    }
-  }
-
-  return candidates
-}
-
-// ── Stage 4: assemble and return ─────────────────────────────────────────────
+// ── Main export ──────────────────────────────────────────────────────────────
 
 export function generatePuzzle(diff: Difficulty): Puzzle | null {
   const numSets = diff === 'easy' ? 2 : diff === 'medium' ? 3 : randomInt(4, 6)
-  const numExtra =
-    diff === 'easy' ? randomInt(2, 3) :
-    diff === 'medium' ? randomInt(3, 5) :
-    randomInt(5, 8)
 
-  for (let attempt = 0; attempt < 10; attempt++) {
-    // Stage 1: build core valid sets
-    const coreSets = buildSets(numSets)
-    if (!coreSets) continue
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const sets = buildSolutionSets(numSets, diff)
+    if (!sets) continue
 
-    // Stage 2: for each set, append single-step extension tiles directly into
-    // that set's tile array. Tracking `used` across sets prevents cross-set
-    // collisions. The puzzle rack = these appended tiles pulled back out.
-    const used = new Set(coreSets.flat().map(tileKey))
-    const extSets: Tile[][] = coreSets.map(s => [...s])
-    const rackTiles: Tile[] = []
+    const rb = selectRackAndBoard(sets, diff)
+    if (!rb) continue
+    const { rack, boardSets } = rb
 
-    // Hard mode: precompute which extension tiles are candidates for 2+ sets
-    // (ambiguous tiles). Must be done before `used` is mutated by the loop.
-    const ambiguousKeys = new Set<string>()
-    if (diff === 'hard') {
-      const keyCount = new Map<string, number>()
-      for (const s of coreSets) {
-        for (const t of singleStepExtensions(s, used)) {
-          const k = tileKey(t)
-          keyCount.set(k, (keyCount.get(k) ?? 0) + 1)
-        }
-      }
-      for (const [k, count] of keyCount) {
-        if (count >= 2) ambiguousKeys.add(k)
-      }
-    }
+    // boardSets may exceed 6 rows — skip if so
+    if (boardSets.length > 6) continue
 
-    const indices = shuffle(Array.from({ length: numSets }, (_, i) => i))
-    for (const si of indices) {
-      if (rackTiles.length >= numExtra) break
-      // Always compute candidates against the ORIGINAL core set endpoints so
-      // extensions added to one end don't shift the target for the other.
-      const candidates = singleStepExtensions(coreSets[si], used)
-      if (candidates.length === 0) continue
-      const want = Math.min(2, numExtra - rackTiles.length, candidates.length)
-      // Hard mode: prefer ambiguous candidates (valid for 2+ sets) to create
-      // genuine placement ambiguity for the player.
-      const sorted =
-        diff === 'hard'
-          ? shuffle(candidates).sort(
-              (a, b) =>
-                (ambiguousKeys.has(tileKey(a)) ? 0 : 1) -
-                (ambiguousKeys.has(tileKey(b)) ? 0 : 1),
-            )
-          : shuffle(candidates)
-      for (const t of sorted.slice(0, want)) {
-        extSets[si].push(t)
-        used.add(tileKey(t))
-        rackTiles.push(t)
-      }
-    }
-
-    if (rackTiles.length === 0) continue
-    if (rackTiles.length < numExtra * 0.75) continue
-
-    // Stage 3: confirm every extended set is still a valid Rummikub set.
-    // Single-step extensions always preserve validity, so this should never
-    // fail — it's a safety net against future logic changes.
-    if (!extSets.every(s => isValidRun(s) || isValidGroup(s))) continue
-
-    // Stage 4: build puzzle.
-    // grid  = core sets only (extensions removed) — always a fully valid board.
-    // rack  = the extension tiles; each has exactly one valid home with no
-    //         cross-set conflicts possible, guaranteeing solvability.
-    const grid = buildGrid(coreSets)
-    const extraRows = 2
-    const extraGrid = [
-      ...grid,
-      ...Array.from({ length: extraRows }, () => Array(grid[0].length).fill(null)),
-    ]
-
-    const shuffledRack = shuffle(rackTiles)
-
-    // Verify the puzzle is actually solvable before returning it.
-    const solveResult = solve(extraGrid, shuffledRack)
+    const grid = layoutGrid(boardSets)
+    const solveResult = solve(grid, rack, 600)
     if (!solveResult.solvable) continue
 
     return {
       id: `gen_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       name: `${diff} puzzle`,
       diff,
-      grid: extraGrid,
-      rack: shuffledRack,
-      optimalMoves: rackTiles.length,
+      grid,
+      rack: shuffle(rack),
+      optimalMoves: rack.length,
       generated: true,
     }
   }

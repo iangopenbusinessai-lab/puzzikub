@@ -78,9 +78,9 @@ function buildGroups(grid: Grid): GroupMaps {
 // ── Public API ────────────────────────────────────────────────────────────────
 
 function isCovered(hGroup: Group | null, vGroup: Group | null): boolean {
-  if (hGroup && hGroup.cells.length >= 3 && (isValidRun(hGroup.tiles) || isValidGroup(hGroup.tiles))) return true
-  if (vGroup && vGroup.cells.length >= 3 && (isValidRun(vGroup.tiles) || isValidGroup(vGroup.tiles))) return true
-  return false
+  const hValid = !!(hGroup && hGroup.cells.length >= 3 && (isValidRun(hGroup.tiles) || isValidGroup(hGroup.tiles)))
+  const vValid = !!(vGroup && vGroup.cells.length >= 3 && (isValidRun(vGroup.tiles) || isValidGroup(vGroup.tiles)))
+  return hValid !== vValid
 }
 
 export function validateGrid(grid: Grid): boolean {
