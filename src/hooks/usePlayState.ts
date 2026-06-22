@@ -11,7 +11,6 @@ interface State {
   moves: number
   undos: number
   won: boolean
-  optimalMoves: number
   invalidCells: Set<string>
 }
 
@@ -29,17 +28,18 @@ function deepCopyGrid(g: Grid): Grid {
 function reducer(state: State, action: Action): State {
   switch (action.type) {
 
-    case 'LOAD':
+    case 'LOAD': {
+      const emptyGrid: Grid = Array.from({ length: 6 }, () => Array(10).fill(null))
       return {
-        grid: deepCopyGrid(action.puzzle.grid),
+        grid: emptyGrid,
         rack: [...action.puzzle.rack],
         history: [],
         moves: 0,
         undos: 0,
         won: false,
-        optimalMoves: action.puzzle.optimalMoves,
         invalidCells: new Set(),
       }
+    }
 
     case 'DROP': {
       const { src: dragSrc, target } = action
@@ -129,7 +129,6 @@ const INIT: State = {
   moves: 0,
   undos: 0,
   won: false,
-  optimalMoves: 0,
   invalidCells: new Set(),
 }
 
@@ -138,7 +137,8 @@ export function usePlayState() {
   const initialState = useRef<{ grid: Grid; rack: Tile[] } | null>(null)
 
   const loadPuzzle = useCallback((p: Puzzle) => {
-    initialState.current = { grid: deepCopyGrid(p.grid), rack: [...p.rack] }
+    const emptyGrid: Grid = Array.from({ length: 6 }, () => Array(10).fill(null))
+    initialState.current = { grid: emptyGrid, rack: [...p.rack] }
     dispatch({ type: 'LOAD', puzzle: p })
   }, [])
 
@@ -169,7 +169,6 @@ export function usePlayState() {
     moves: state.moves,
     undos: state.undos,
     won: state.won,
-    optimalMoves: state.optimalMoves,
     invalidCells: state.invalidCells,
     drop,
     undo,

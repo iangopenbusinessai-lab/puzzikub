@@ -55,14 +55,15 @@ export function useEditor() {
   }, [])
 
   const buildPuzzle = useCallback((): Puzzle | null => {
-    if (!name.trim() || rack.length === 0) return null
+    const gridTiles = grid.flat().filter((t): t is Tile => t !== null)
+    const allTiles = [...gridTiles, ...rack]
+    if (!name.trim() || allTiles.length === 0) return null
     return {
       id: crypto.randomUUID(),
       name: name.trim(),
       diff,
-      grid: grid.map(r => [...r]),
-      rack: [...rack],
-      optimalMoves: rack.length,
+      rack: allTiles,
+      hint: '',
       generated: false,
     }
   }, [grid, rack, name, diff])

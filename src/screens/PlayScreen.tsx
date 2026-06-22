@@ -23,7 +23,7 @@ interface Props {
 }
 
 export function PlayScreen({ activeScreen, onNav, soundEnabled, onShowSettings, onShowTutorial }: Props) {
-  const { grid, rack, moves, undos, won, optimalMoves, invalidCells, drop, undo, reset, loadPuzzle } = usePlayState()
+  const { grid, rack, moves, undos, won, invalidCells, drop, undo, reset, loadPuzzle } = usePlayState()
   const { drag, startDrag, updatePos, endDrag } = useDrag()
   const tileStyle = useContext(TileStyleContext)
 
@@ -162,7 +162,7 @@ export function PlayScreen({ activeScreen, onNav, soundEnabled, onShowSettings, 
         ) : (
           <>
             <div style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '4px 0 12px' }}>
-              moves: {moves}&nbsp;&nbsp;optimal: {optimalMoves}&nbsp;&nbsp;rack: {rack.length}
+              moves: {moves}&nbsp;&nbsp;rack: {rack.length}
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'center', margin: '0 0 16px' }}>
@@ -189,7 +189,7 @@ export function PlayScreen({ activeScreen, onNav, soundEnabled, onShowSettings, 
             {won && (
               <div style={{ color: '#27500A', fontSize: 13, margin: '12px 0' }}>
                 <span className="win-text-in">
-                  cleared ✓&nbsp;&nbsp;{moves} moves&nbsp;&nbsp;·&nbsp;&nbsp;optimal: {optimalMoves}
+                  cleared ✓&nbsp;&nbsp;{moves} moves
                 </span>
               </div>
             )}

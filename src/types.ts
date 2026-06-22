@@ -19,9 +19,8 @@ export interface Puzzle {
   id: string
   name: string
   diff: Difficulty
-  grid: Grid          // partially filled — the puzzle starting state
-  rack: Tile[]        // disrupted tiles the player must place
-  optimalMoves: number // = number of disruptions made
+  rack: Tile[]       // ALL tiles — player places everything
+  hint: string
   generated: boolean
 }
 
