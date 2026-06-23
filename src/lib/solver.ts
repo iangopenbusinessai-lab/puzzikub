@@ -1,108 +1,85 @@
-import type { Grid, Tile } from '../types'
-import { validateGrid, isValidRun, isValidGroup } from './validator'
+import type { Tile } from '../types'
 
 export interface SolveResult {
   solvable: boolean
-  solutionGrid?: Grid
-  movesUsed?: number
+  assignment?: Map<string, 'run' | 'group'>
 }
 
-// Check whether a partial contiguous sequence (H or V) is already doomed.
-// A sequence is prunable when it has ≥ 3 tiles and is neither a valid run
-// nor extendable into one (wrong colors mixed, or numbers already broken).
-function partialGroupOk(tiles: Tile[]): boolean {
-  if (tiles.length < 2) return true
-  if (tiles.length >= 3 && (isValidRun(tiles) || isValidGroup(tiles))) return true
-  if (tiles.length >= 3) return false
-  // length === 2: check if they CAN still form a valid run or group together
-  const [a, b] = tiles
-  const sameColor = a.c === b.c
-  const consecutive = Math.abs(a.n - b.n) === 1
-  const sameNumber = a.n === b.n
-  const diffColor = a.c !== b.c
-  return (sameColor && consecutive) || (sameNumber && diffColor)
-}
+// Verification (manual traces — see CLAUDE.md Session 1):
+// solveBag([{n:3,c:'r'},{n:4,c:'r'},{n:5,c:'r'}]) → {solvable:true}   // run of 3 reds
+// solveBag([{n:3,c:'r'},{n:4,c:'r'}])              → {solvable:false}  // run too short
+// solveBag([{n:5,c:'r'},{n:5,c:'b'},{n:5,c:'k'}])  → {solvable:true}   // group of 3
+// solveBag([{n:5,c:'r'},{n:5,c:'b'}])              → {solvable:false}  // only 2 same value
 
-function scanSequences(g: Grid, rows: number, cols: number): boolean {
-  // horizontal
-  for (let r = 0; r < rows; r++) {
-    let c = 0
-    while (c < cols) {
-      if (!g[r][c]) { c++; continue }
-      let end = c
-      while (end + 1 < cols && g[r][end + 1]) end++
-      const seq: Tile[] = []
-      for (let i = c; i <= end; i++) seq.push(g[r][i] as Tile)
-      if (!partialGroupOk(seq)) return false
-      c = end + 1
-    }
+const COLORS = ['r', 'b', 'a', 'k'] as const
+type Color = typeof COLORS[number]
+type RunState = [number, number, number, number]
+
+export function solveBag(tiles: Tile[]): SolveResult {
+  // Index tiles by value → set of colors present
+  const bagByValue = new Map<number, Set<Color>>()
+  for (const t of tiles) {
+    if (!bagByValue.has(t.n)) bagByValue.set(t.n, new Set())
+    bagByValue.get(t.n)!.add(t.c as Color)
   }
-  // vertical
-  for (let c = 0; c < cols; c++) {
-    let r = 0
-    while (r < rows) {
-      if (!g[r][c]) { r++; continue }
-      let end = r
-      while (end + 1 < rows && g[end + 1][c]) end++
-      const seq: Tile[] = []
-      for (let i = r; i <= end; i++) seq.push(g[i][c] as Tile)
-      if (!partialGroupOk(seq)) return false
-      r = end + 1
+
+  const memo = new Map<string, boolean>()
+
+  function dp(v: number, runs: RunState): boolean {
+    if (v > 13) {
+      // Valid only if no incomplete runs (length 1 or 2)
+      return runs[0] !== 1 && runs[0] !== 2
+          && runs[1] !== 1 && runs[1] !== 2
+          && runs[2] !== 1 && runs[2] !== 2
+          && runs[3] !== 1 && runs[3] !== 2
     }
-  }
-  return true
-}
 
-export function solve(grid: Grid, rack: Tile[], maxDepthMs = 800): SolveResult {
-  const startTime = Date.now()
-  const rows = grid.length || 6
-  const cols = grid[0]?.length ?? 10
+    const key = `${v}|${runs[0]}|${runs[1]}|${runs[2]}|${runs[3]}`
+    const cached = memo.get(key)
+    if (cached !== undefined) return cached
 
-  // Build full tile pool: rack tiles + every board tile
-  const pool: Tile[] = [...rack]
-  const boardCells: { r: number; c: number }[] = []
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      if (grid[r]?.[c]) {
-        pool.push(grid[r][c] as Tile)
-        boardCells.push({ r, c })
+    const present = bagByValue.get(v) ?? new Set<Color>()
+    const presentArr = COLORS.filter(c => present.has(c))
+
+    // Enumerate all valid group formations (no group, groups of 3, group of 4)
+    const groupOptions: Color[][] = [[]] // no group
+    if (presentArr.length >= 3) {
+      const n = presentArr.length
+      for (let i = 0; i < n - 2; i++)
+        for (let j = i + 1; j < n - 1; j++)
+          for (let k = j + 1; k < n; k++)
+            groupOptions.push([presentArr[i], presentArr[j], presentArr[k]])
+      if (n === 4)
+        groupOptions.push([...presentArr])
+    }
+
+    for (const group of groupOptions) {
+      const groupSet = new Set(group)
+      const newRuns: RunState = [0, 0, 0, 0]
+      let valid = true
+
+      for (let i = 0; i < 4; i++) {
+        const c = COLORS[i]
+        const extendsRun = present.has(c) && !groupSet.has(c)
+
+        if (extendsRun) {
+          newRuns[i] = runs[i] < 3 ? runs[i] + 1 : 3
+        } else {
+          // run terminates here
+          if (runs[i] === 1 || runs[i] === 2) { valid = false; break }
+          newRuns[i] = 0
+        }
+      }
+
+      if (valid && dp(v + 1, newRuns)) {
+        memo.set(key, true)
+        return true
       }
     }
+
+    memo.set(key, false)
+    return false
   }
 
-  // Start with a blank grid; we'll fill all cells from pool
-  const startGrid: Grid = Array.from({ length: rows }, () => Array(cols).fill(null))
-
-  // Collect all cells as placement targets
-  const allCells: { r: number; c: number }[] = []
-  for (let r = 0; r < rows; r++)
-    for (let c = 0; c < cols; c++)
-      allCells.push({ r, c })
-
-  // Backtracking: assign pool[idx] to some cell, recurse
-  function backtrack(g: Grid, idx: number): Grid | null {
-    if (Date.now() - startTime > maxDepthMs) return null
-    if (idx === pool.length) {
-      return validateGrid(g) ? g : null
-    }
-
-    const tile = pool[idx]
-    for (const { r, c } of allCells) {
-      if (g[r][c] !== null) continue
-      g[r][c] = tile
-      if (scanSequences(g, rows, cols)) {
-        const result = backtrack(g, idx + 1)
-        if (result) return result
-      }
-      g[r][c] = null
-    }
-    return null
-  }
-
-  const workGrid: Grid = startGrid.map(row => [...row])
-  const result = backtrack(workGrid, 0)
-  if (result) {
-    return { solvable: true, solutionGrid: result, movesUsed: rack.length }
-  }
-  return { solvable: false }
+  return { solvable: dp(1, [0, 0, 0, 0]) }
 }
