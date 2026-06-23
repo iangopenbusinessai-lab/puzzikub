@@ -8,7 +8,7 @@ import { Board } from '../components/Board'
 import { Rack } from '../components/Rack'
 import { DragPreview } from '../components/DragPreview'
 import { NavBar } from '../components/NavBar'
-import type { Screen, Difficulty, Grid } from '../types'
+import type { Screen, Difficulty, Grid, Puzzle } from '../types'
 import { TileStyleContext } from '../lib/themes'
 
 const DIFFS: Difficulty[] = ['easy', 'medium', 'hard', 'extreme']
@@ -28,6 +28,7 @@ export function PlayScreen({ activeScreen, onNav, soundEnabled, onShowSettings, 
   const tileStyle = useContext(TileStyleContext)
 
   const [diff, setDiff] = useState<Difficulty>('easy')
+  const [currentPuzzle, setCurrentPuzzle] = useState<Puzzle | null>(null)
   const [hoverTarget, setHoverTarget] = useState<
     { to: 'grid'; row: number; col: number } | { to: 'rack' } | null
   >(null)
@@ -54,7 +55,7 @@ export function PlayScreen({ activeScreen, onNav, soundEnabled, onShowSettings, 
     setGenFailed(false)
     for (let i = 0; i < 5; i++) {
       const p = generatePuzzle(d)
-      if (p) { loadPuzzle(p); return }
+      if (p) { loadPuzzle(p); setCurrentPuzzle(p); return }
     }
     setGenFailed(true)
   }, [loadPuzzle])
@@ -170,8 +171,11 @@ export function PlayScreen({ activeScreen, onNav, soundEnabled, onShowSettings, 
           <div style={{ color: 'var(--text-secondary)', fontSize: 13, padding: '20px 0' }}>Generating puzzle…</div>
         ) : (
           <>
-            <div style={{ fontSize: 12, color: 'var(--text-secondary)', margin: '4px 0 12px' }}>
-              moves: {moves}&nbsp;&nbsp;rack: {rack.length}
+            <div style={{ display: 'flex', alignItems: 'center', fontSize: 12, color: 'var(--text-secondary)', margin: '4px 0 12px' }}>
+              moves: {moves}&nbsp;&nbsp;optimal: {currentPuzzle?.optimalMoves ?? '—'}&nbsp;&nbsp;rack: {rack.length}
+              {currentPuzzle?.archetypeId && (diff === 'hard' || diff === 'extreme') && (
+                <ArchetypeBadge id={currentPuzzle.archetypeId} />
+              )}
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'center', margin: '0 0 16px' }}>
@@ -198,7 +202,13 @@ export function PlayScreen({ activeScreen, onNav, soundEnabled, onShowSettings, 
             {won && (
               <div style={{ color: '#27500A', fontSize: 13, margin: '12px 0' }}>
                 <span className="win-text-in">
-                  cleared ✓&nbsp;&nbsp;{moves} moves
+                  {currentPuzzle && moves === currentPuzzle.optimalMoves
+                    ? `cleared ✓ perfect!  ${moves} moves`
+                    : currentPuzzle && moves <= currentPuzzle.optimalMoves * 1.5
+                    ? `cleared ✓  ${moves} moves  (optimal: ${currentPuzzle.optimalMoves})`
+                    : currentPuzzle
+                    ? `cleared ✓  ${moves} moves  (optimal: ${currentPuzzle.optimalMoves} — try again for better?)`
+                    : `cleared ✓  ${moves} moves`}
                 </span>
               </div>
             )}
@@ -241,6 +251,31 @@ export function PlayScreen({ activeScreen, onNav, soundEnabled, onShowSettings, 
         </div>
       )}
     </div>
+  )
+}
+
+const ARCHETYPE_BADGE: Record<string, { label: string; bg: string; color: string }> = {
+  'run-to-group':    { label: '↔ collapse',  bg: '#EEEDFE', color: '#3C3489' },
+  'domino-chain':    { label: '⛓ chain',     bg: '#E1F5EE', color: '#085041' },
+  'false-extension': { label: '⚠ decoy',     bg: '#FAEEDA', color: '#633806' },
+}
+
+function ArchetypeBadge({ id }: { id: string }) {
+  const badge = ARCHETYPE_BADGE[id]
+  if (!badge) return null
+  return (
+    <span style={{
+      fontSize: 11,
+      marginLeft: 8,
+      padding: '2px 7px',
+      borderRadius: 20,
+      background: badge.bg,
+      color: badge.color,
+      fontWeight: 500,
+      lineHeight: 1.4,
+    }}>
+      {badge.label}
+    </span>
   )
 }
 
