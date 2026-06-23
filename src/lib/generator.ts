@@ -1,7 +1,7 @@
 import type { Tile, Grid, Difficulty, Puzzle } from '../types'
 import { isValidRun, isValidGroup } from './validator'
 import { solveBag } from './solver'
-import { buildRunToGroup, type ArchetypeType } from './archetypes'
+import { buildRunToGroup, buildDominoChain, buildFalseExtension, type ArchetypeType } from './archetypes'
 
 const COLORS: Tile['c'][] = ['r', 'b', 'a', 'k']
 
@@ -146,7 +146,11 @@ function computeScores(
 }
 
 export function generatePuzzle(diff: Difficulty): Puzzle | null {
-  if (diff === 'extreme') return generateArchetype('run-to-group', diff)
+  if (diff === 'extreme') {
+    const archetypes: ArchetypeType[] = ['run-to-group', 'domino-chain', 'false-extension']
+    const type = archetypes[randomInt(0, archetypes.length - 1)]
+    return generateArchetype(type, diff)
+  }
 
   const numSets = diff === 'easy' ? 2 : diff === 'medium' ? 3 : randomInt(4, 6)
   const numExtra =
@@ -193,7 +197,10 @@ export function generatePuzzle(diff: Difficulty): Puzzle | null {
 
 export function generateArchetype(type: ArchetypeType, diff: Difficulty): Puzzle | null {
   for (let attempt = 0; attempt < 20; attempt++) {
-    const result = buildRunToGroup(diff)
+    const result =
+      type === 'run-to-group'    ? buildRunToGroup(diff) :
+      type === 'domino-chain'    ? buildDominoChain(diff) :
+      /* false-extension */        buildFalseExtension(diff)
     if (!result) continue
     if (!solveBag(result.allTiles).solvable) continue
 
