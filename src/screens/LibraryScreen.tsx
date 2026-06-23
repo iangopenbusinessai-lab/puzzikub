@@ -17,7 +17,7 @@ interface Props {
 
 type Filter = 'all' | Puzzle['diff']
 
-const DIFFS: Puzzle['diff'][] = ['easy', 'medium', 'hard']
+const DIFFS: Puzzle['diff'][] = ['easy', 'medium', 'hard', 'extreme']
 
 const DIFF_BADGE: Record<Puzzle['diff'], CSSProperties> = {
   easy:    { background: '#EAF3DE', color: '#27500A' },

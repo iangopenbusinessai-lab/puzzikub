@@ -11,7 +11,7 @@ import { NavBar } from '../components/NavBar'
 import type { Screen, Difficulty, Grid } from '../types'
 import { TileStyleContext } from '../lib/themes'
 
-const DIFFS: Difficulty[] = ['easy', 'medium', 'hard']
+const DIFFS: Difficulty[] = ['easy', 'medium', 'hard', 'extreme']
 const CONFETTI_COLORS = ['#A32D2D', '#185FA5', '#BA7517', '#222222']
 
 interface Props {
@@ -34,6 +34,7 @@ export function PlayScreen({ activeScreen, onNav, soundEnabled, onShowSettings, 
   const [lockInCells, setLockInCells] = useState<Set<string>>(new Set())
   const [showConfetti, setShowConfetti] = useState(false)
   const [confettiId, setConfettiId] = useState(0)
+  const [genFailed, setGenFailed] = useState(false)
 
   const prevGridRef = useRef<Grid>([])
   const justDroppedToGridRef = useRef(false)
@@ -50,14 +51,12 @@ export function PlayScreen({ activeScreen, onNav, soundEnabled, onShowSettings, 
   ), [confettiId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const generate = useCallback((d: Difficulty) => {
-    const p = generatePuzzle(d)
-    if (!p) {
-      const p2 = generatePuzzle(d)
-      if (!p2) return
-      loadPuzzle(p2)
-      return
+    setGenFailed(false)
+    for (let i = 0; i < 5; i++) {
+      const p = generatePuzzle(d)
+      if (p) { loadPuzzle(p); return }
     }
-    loadPuzzle(p)
+    setGenFailed(true)
   }, [loadPuzzle])
 
   useEffect(() => {
@@ -157,7 +156,17 @@ export function PlayScreen({ activeScreen, onNav, soundEnabled, onShowSettings, 
           ))}
         </div>
 
-        {loading ? (
+        {genFailed ? (
+          <div style={{ color: 'var(--text-secondary)', fontSize: 13, padding: '20px 0' }}>
+            Failed to generate.{' '}
+            <button
+              onClick={() => generate(diff)}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#185FA5', fontSize: 13, padding: 0 }}
+            >
+              Try again
+            </button>
+          </div>
+        ) : loading ? (
           <div style={{ color: 'var(--text-secondary)', fontSize: 13, padding: '20px 0' }}>Generating puzzle…</div>
         ) : (
           <>
