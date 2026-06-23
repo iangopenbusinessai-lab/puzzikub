@@ -1,155 +1,290 @@
 # Puzzikub — CLAUDE.md
+*Last updated: June 2026. Keep this file current after every major change.*
 
 ## Project overview
 Rummikub-style clear-your-rack puzzle game on a free grid.
 Stack: Vite + React + TypeScript, deployed to GitHub Pages.
 Repo: https://github.com/iangopenbusinessai-lab/puzzikub.git
 
+---
+
 ## CRITICAL: vite.config.ts
 base must always be '/puzzikub/' — never change this, never remove it.
 Do NOT revert to base: '/' under any circumstances.
 
+---
+
+## Testing & verification workflow
+- Local dev: `npm run dev` → http://localhost:5173/puzzikub/
+- Live site: https://iangopenbusinessai-lab.github.io/puzzikub/
+  The person often tests the LIVE deployed site, not just localhost.
+- Deploy: `npm run deploy` (builds + pushes dist/ to gh-pages branch)
+  Changes are NOT live until this runs, even after `git push` to main.
+- Person reports bugs via: browser screenshots, pasted browser console
+  output, and pasted PowerShell terminal output (Windows).
+
+## Debugging protocol — ALWAYS follow this order
+1. Read the relevant files first. Never assume file contents.
+2. If root cause is unclear, add temporary console.log statements,
+   have the person paste the output, THEN write the fix.
+3. Dynamic import() of .ts files does NOT work against the deployed
+   GitHub Pages build — never suggest this for the live site.
+4. ESCALATION RULE: if a bug survives one fix attempt, STOP patching.
+   Diagnose first — read files, add logging, get real output, state
+   root cause explicitly — THEN fix. This is mandatory.
+
+---
+
 ## Architecture rules
 - All game logic lives in src/lib/ — pure functions, zero React imports
 - Components are presentational only; all state lives in hooks
-- Drag and drop uses native HTML5 drag API — no external DnD libraries
+- Drag uses native mouse events (mousedown/mousemove/mouseup on document)
+  NO HTML5 drag API anywhere, NO draggable attribute, NO ondragstart
 - localStorage key for puzzle library: 'puzzikub_library'
+- All styling is inline style={{}} props — exception: index.css for
+  keyframe animations and CSS custom properties (theme vars) only
 - Never import React hooks inside src/lib/ files
-- All styling is inline style={{}} props — no CSS files, no classNames, no Tailwind
 
-## Core types (never change these interfaces)
+---
+
+## Core types (src/types.ts)
 ```ts
 interface Tile { n: number; c: 'r' | 'b' | 'a' | 'k' }
-type Grid = (Tile | null)[][]          // 6 rows × 10 cols, all null on init
+type Grid = (Tile | null)[][]   // variable size per puzzle
 type Difficulty = 'easy' | 'medium' | 'hard'
+type Screen = 'play' | 'library' | 'editor'
 
 interface Puzzle {
   id: string
   name: string
   diff: Difficulty
-  rack: Tile[]       // ALL tiles — player places everything
-  hint: string
+  grid: Grid        // partially filled starting board state
+  rack: Tile[]      // extra tiles player must incorporate
+  optimalMoves: number
   generated: boolean
-  // NOTE: no sets[] — solution is not stored, only the rack
+  // NO sets[] — removed. NO hint — removed.
 }
 
 interface DragSrc {
   from: 'rack' | 'grid'
-  rackIdx?: number   // when from === 'rack'
-  row?: number       // when from === 'grid'
-  col?: number       // when from === 'grid'
+  rackIdx?: number
+  row?: number
+  col?: number
+}
+
+// Theme system types
+type BackgroundStyle = 'none' | 'glass-glow' | 'wood-grain' | 'neon-veil' | 'paper-grain'
+type TileStyle = 'plain' | 'glass' | 'ceramic' | 'neon-outline' | 'paper'
+type ThemePreset = 'minimalist' | 'glass' | 'wood' | 'neon' | 'paper'
+
+// Exported constant — import from types.ts, never redefine elsewhere
+export const NUM_COLOR: Record<Tile['c'], string> = {
+  r: '#A32D2D', b: '#185FA5', a: '#BA7517', k: '#222222'
 }
 ```
 
-## Tile colors (never change)
-| tile.c | number color | border color |
-|--------|-------------|--------------|
-| r      | #A32D2D     | #F09595      |
-| b      | #185FA5     | #85B7EB      |
-| a      | #BA7517     | #EF9F27      |
-| k      | #222222     | #cccccc      |
+---
 
-Tile card: 46×58px, borderRadius 8, bg white, boxShadow "0 1px 3px rgba(0,0,0,0.12)", number 20px/500 centered. No suit symbol.
+## Puzzle generation (src/lib/generator.ts)
+Build solution first, then disrupt. Never build random tiles and hope.
 
-## Generator (src/lib/generator.ts)
-Build solution first — never give impossible puzzles.
+### How it works
+1. Build 2–6 valid sets (runs + groups) with collision checking
+2. Lay sets onto grid row by row — grid sized to fit + 2 extra empty rows
+3. Generate EXTRA tiles via legalExtensions():
+   - Each extra tile must be a valid extension of an existing set
+   - RUN: minN-1 or maxN+1 of same color
+   - GROUP: missing color for same-number group
+   - Hard mode: prefer ambiguous tiles that could extend 2+ sets
+4. Verify solvability via solve() — reject and retry if unsolvable
+5. Return Puzzle with fully-solved grid + extra tiles as rack
 
-1. Decide numSets: easy=2, medium=2–3, hard=3–4
-2. For each set, build either a valid RUN or GROUP:
-   - RUN: pick color c, pick start so start+len-1 ≤ 13, tiles = [{n:start,c}…{n:start+len-1,c}]
-     len: easy=3, medium=3–4, hard=3–5
-   - GROUP: pick number n, pick 3–4 distinct colors, tiles = [{n,c}…]
-3. Collision check: no two tiles share (n,c). Retry set up to 20× on collision.
-4. rack = shuffle of ALL tiles from ALL sets
-5. Return Puzzle with empty grid — solution is implicit, not stored
+### Difficulty
+| Diff   | numSets | numExtra |
+|--------|---------|----------|
+| easy   | 2       | 2–3      |
+| medium | 3       | 3–5      |
+| hard   | 4–6     | 5–8      |
 
-## Game state (src/hooks/usePlayState.ts)
-State: grid:Grid, rack:Tile[], history:{grid,rack}[], moves, undos, won, dragSrc
+Board starts FULLY SOLVED. Rack has EXTRA tiles only.
+Player incorporates rack tiles into existing sets — not fills holes.
 
-loadPuzzle(p): grid=6×10 nulls, rack=[...p.rack], reset history/moves/undos/won
+---
 
-drop(target: {to:'grid',row,col} | {to:'rack'}):
-  - Snapshot {grid,rack} to history before every mutation
-  - RACK→GRID: remove rack[rackIdx], place at grid[row][col]
-      if occupied: displaced tile returns to rack
-  - GRID→GRID: swap grid[src.row][src.col] ↔ grid[row][col]
-  - GRID→RACK: grid[src.row][src.col]=null, append tile to rack
-  - moves++
+## Solver (src/lib/solver.ts)
+```ts
+export function solve(grid: Grid, rack: Tile[], maxDepthMs = 800): SolveResult
+```
+- Phase 1: backtrack placement-only
+- Phase 2: backtrack with one board-to-board swap allowed
+- Used by generator to gate every puzzle before returning
+- KNOWN ISSUE: currently causing generatePuzzle() to return null
+  every time → page stuck on "Generating puzzle..."
+  Root cause unknown — needs console.log diagnostic in generator
 
-undo: pop history, restore grid+rack, won=false
+---
 
 ## Validator (src/lib/validator.ts)
-validateGrid(grid): boolean — called only on Check button press
+```ts
+export function validateGrid(grid: Grid): boolean
+export function getInvalidCells(grid: Grid): Set<string>
+export function getNewlyValidCells(prevGrid: Grid, newGrid: Grid): Set<string>
+export function isValidRun(tiles: Tile[]): boolean
+export function isValidGroup(tiles: Tile[]): boolean
+```
+- Horizontal groups only matter for validity — vertical pairs (length 2)
+  NEVER invalidate a tile that belongs to a valid horizontal group
+- isValidRun: all same tile.c, consecutive tile.n, ≥3 tiles
+- isValidGroup: all same tile.n, all different tile.c, 3–4 tiles
+- Win = rack.length===0 AND validateGrid returns true
 
-1. Collect all {tile,row,col} from grid
-2. Find horizontal groups: per row, maximal contiguous tile sequences (no null gaps)
-3. Find vertical groups: per col, maximal contiguous tile sequences
-4. Every tile must belong to exactly ONE group (H or V — not both)
-5. Every group must be length ≥ 3
-6. Every group must pass isValidRun OR isValidGroup:
-   - isValidRun: all same tile.c, tile.n values consecutive when sorted, length ≥ 3
-   - isValidGroup: all same tile.n, all different tile.c, length 3 or 4
-7. Return true only if ALL tiles covered, no overlaps, no isolated tiles
+---
 
-Win = rack.length===0 AND validateGrid returns true
+## Drag system
+Pure mouse events. Zero HTML5 drag API.
 
-## Board UI (src/components/Board.tsx)
-CSS grid: gridTemplateColumns repeat(10,46px), gridTemplateRows repeat(6,58px), gap 6px
-bg #f0ede8, borderRadius 16, padding 16, display inline-grid
+- onMouseDown on tile → startDrag (useDrag.ts)
+- document mousemove → updatePos (active only while drag !== null)
+- document mouseup → reads hoverTarget → calls drop()
+- onMouseEnter/onMouseLeave on each cell → sets hoverTarget
+  (drop target detection — NOT elementFromPoint)
+- DragPreview: position:fixed, pointerEvents:none, uses TileFace
 
-Empty cell: 46×58 transparent, no border — drop target via ondragover+ondrop
-Tile cell: white card (see tile colors above), draggable
-Drag-over empty cell: bg #e8e4de
+### Critical rules — never violate
+- NO setPointerCapture
+- NO draggable attribute anywhere (not even draggable={false})
+- NO ondragstart handlers
+- data-nodrag="" on every tile div
+- main.tsx must have both:
+    document.addEventListener('dragstart', e => e.preventDefault(), true)
+    document.addEventListener('mousedown', e => {
+      if ((e.target as HTMLElement).closest('[data-nodrag]')) e.preventDefault()
+    }, true)
 
-## Rack UI (src/components/Rack.tsx)
-Label "rack" 11px #999 above tile area
-Tile area: bg #f0ede8, borderRadius 12, padding 12, flex row, gap 8, flexWrap, minHeight 70
-Whole area is drop target for returning grid tiles
+---
 
-## Play screen (src/screens/PlayScreen.tsx)
-- Default screen on load — generate easy puzzle on mount
-- Nav: 44px fixed-height bar, Play|Editor|Library, plain text buttons
-  active: color #222 fontWeight 500 — inactive: color #999 — no borders/boxes
-- Difficulty pills: Easy|Medium|Hard below nav
-- Stats row: "moves: N  rack: N" 12px #999
-- Board centered, Rack below board
-- Buttons: Undo · Reset · New · Check — transparent, 13px, color #555, hover #222
-- Check result (small text below buttons):
-    rack not empty → "place all tiles first" #999
-    invalid → "not quite" #A32D2D
-    valid → "cleared ✓" #27500A, set won=true
-- No hint button, no set labels, no valid/invalid badges on board
+## Game state (src/hooks/usePlayState.ts)
+```
+State: grid, rack, history, moves, undos, won, optimalMoves,
+       invalidCells: Set<string>, lockInCells: Set<string>
+
+loadPuzzle(p):
+  grid = deepCopy(p.grid)
+  rack = [...p.rack]
+  initialState.current = deepCopy({grid, rack})  ← for reset()
+  clear history/moves/undos/won/invalidCells
+
+drop(target):
+  snapshot to history first
+  RACK→GRID: remove from rack, place; if occupied → displaced to rack
+  GRID→GRID: swap cells
+  GRID→RACK: null the cell, append to rack
+  moves++
+  if rack.length===0: validateGrid → won or getInvalidCells
+
+reset(): restore from initialState.current (NOT history[0])
+undo(): pop history, won=false, clear invalidCells
+```
+
+---
+
+## Theme system (src/lib/themes.ts)
+| Preset     | Background  | Tile          |
+|------------|-------------|---------------|
+| minimalist | none        | plain         |
+| glass      | glass-glow  | glass         |
+| wood       | wood-grain  | ceramic       |
+| neon       | neon-veil   | neon-outline  |
+| paper      | paper-grain | paper         |
+
+- neon-veil = existing DarkVeil animated canvas
+- Tile styles in src/components/TileFace.tsx
+- DragPreview uses TileFace — preview must match active theme
+- Settings: preset pills + independent background/tile dropdowns
+- Theme state in App.tsx, persisted to localStorage
+
+---
+
+## Audio (src/lib/audio.ts)
+Web Audio API synthesized sounds, single AudioContext singleton.
+```ts
+playPlace()      // soft snap, pitch-varied per placement
+playLockIn()     // two-tone chime when set becomes valid
+playError()      // low thud for invalid placement
+playWinFanfare() // rising 5-note arpeggio on win
+```
+
+---
+
+## Visual effects (keyframes in src/index.css)
+- tile-land: scale bounce on placement
+- tile-lockin: golden ring pulse when set locks in
+- tile-invalid: shake animation + var(--invalid-bg/ring)
+- win confetti: 20 CSS-animated divs in 4 tile colors
+- win-text-in: scale+fade on win message
+- cell-idle: subtle breathing opacity on empty cells
+
+---
+
+## Shared components
+```
+NavBar.tsx       — shared nav, all three screens
+TileFace.tsx     — themed tile card (plain/glass/ceramic/neon/paper)
+DragPreview.tsx  — floating tile following cursor, uses TileFace
+SettingsPanel.tsx — slide-in panel (theme presets, bg/tile, light/dark, sound)
+Tutorial.tsx     — first-visit overlay
+TilePicker.tsx   — editor cell click → color wheel + drag-to-change-number
+```
+
+---
 
 ## File responsibilities
-- src/types.ts                   — Tile, Grid, Difficulty, Puzzle, DragSrc, Screen
-- src/lib/generator.ts           — generatePuzzle(diff): Puzzle|null
-- src/lib/validator.ts           — validateGrid, isValidRun, isValidGroup
-- src/lib/storage.ts             — loadLibrary, saveLibrary (localStorage)
-- src/hooks/usePlayState.ts      — grid, rack, drag, drop, undo, reset, loadPuzzle
-- src/hooks/useEditor.ts         — editor form state, buildPuzzle()
-- src/components/Board.tsx       — 6×10 grid render + drag/drop
-- src/components/Rack.tsx        — rack render + drop target
-- src/components/StatsBar.tsx    — moves, undos, rack count display
-- src/screens/PlayScreen.tsx     — play UI, wires usePlayState
-- src/screens/EditorScreen.tsx   — manual puzzle builder
-- src/screens/LibraryScreen.tsx  — saved puzzles list
-- src/App.tsx                    — screen router only, no game logic
+```
+src/types.ts                   types + NUM_COLOR
+src/lib/generator.ts           generatePuzzle(diff): Puzzle|null
+src/lib/validator.ts           validateGrid, getInvalidCells, getNewlyValidCells
+src/lib/solver.ts              solve(grid, rack, ms): SolveResult
+src/lib/storage.ts             loadLibrary, saveLibrary
+src/lib/audio.ts               playPlace, playLockIn, playError, playWinFanfare
+src/lib/themes.ts              ThemePreset, BackgroundStyle, TileStyle, THEME_PRESETS
+src/hooks/usePlayState.ts      game state, drop, undo, reset, loadPuzzle
+src/hooks/useEditor.ts         editor state, buildPuzzle()
+src/hooks/useDrag.ts           drag state, startDrag, updatePos, endDrag
+src/components/NavBar.tsx      shared navigation
+src/components/TileFace.tsx    themed tile rendering
+src/components/Board.tsx       grid + mouse events + TileFace
+src/components/Rack.tsx        rack + mouse events + TileFace
+src/components/DragPreview.tsx floating drag preview
+src/components/StatsBar.tsx    moves/undos/rack count
+src/components/SettingsPanel.tsx settings panel
+src/components/Tutorial.tsx    tutorial overlay
+src/components/TilePicker.tsx  editor tile picker (color wheel)
+src/screens/PlayScreen.tsx     play UI
+src/screens/LibraryScreen.tsx  library list
+src/screens/EditorScreen.tsx   grid-based editor
+src/App.tsx                    router, theme/sound state, DarkVeil
+src/main.tsx                   global drag prevention, React root
+```
 
-## Build and deploy
-npm run dev      — local dev server at localhost:5173/puzzikub/
-npm run build    — tsc + vite build → dist/
-npm run deploy   — predeploy runs build, then gh-pages -d dist
+---
 
-## Prompt strategy for large changes
-Break into three sequential prompts, confirm zero TS errors between each:
-1. types.ts + src/lib/ (data layer — no React)
-2. src/components/ (presentational, inline styles only)
-3. src/screens/ + App.tsx (wiring)
+## Known active bugs (fix these first)
+1. CRITICAL: generatePuzzle() returns null every attempt
+   Page stuck on "Generating puzzle...". Solver gate rejecting all
+   candidates. Add console.log in generator to diagnose — do not
+   assume solver is correct, it is new code.
+2. Lag on live site — solver may be running during drop() instead of
+   only during generation. Verify solver is NOT called from usePlayState.
+3. All tiles on rack — likely grid empty, all tiles in rack. Related to #1.
+4. Mobile drag — mouse-only system, needs touchstart/touchmove/touchend.
+   Run explore-first diagnostic before implementing.
 
-## Known issues to avoid
-- vite.config.ts base: '/puzzikub/' — check after every config touch
-- Never use SetRow[] or sets[] in Puzzle — architecture moved to rack-only
-- Never use from:'board' in DragSrc — only 'rack' | 'grid'
-- Drag state must reset on dragend even if drop never fires
-- No position:fixed anywhere (breaks iframe height)
-- Do not auto-check win on every drop — only on Check button press
+---
+
+## Prompt discipline
+- Scope to max 2–3 files per prompt
+- Always end with: Run tsc --noEmit. Expect zero errors.
+- For validator/generator/solver/drag — always explore-first:
+  "Read [files]. Report findings. Propose nothing yet."
+  Then implement in a follow-up prompt.
+- Never patch a bug twice without diagnosing root cause first

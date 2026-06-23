@@ -2,29 +2,34 @@ import type { Puzzle } from '../types'
 
 const STORAGE_KEY = 'puzzikub_library'
 
+const EMPTY_GRID = () => Array.from({ length: 6 }, () => Array(10).fill(null))
+
 const SEED_PUZZLES: Puzzle[] = [
   {
     id: 'seed1',
     name: 'First steps',
     diff: 'easy',
+    grid: EMPTY_GRID(),
     rack: [{ n: 6, c: 'r' }, { n: 9, c: 'k' }, { n: 4, c: 'r' }, { n: 5, c: 'r' }, { n: 9, c: 'b' }, { n: 9, c: 'r' }],
-    hint: '',
+    optimalMoves: 6,
     generated: false,
   },
   {
     id: 'seed2',
     name: 'Two fronts',
     diff: 'medium',
+    grid: EMPTY_GRID(),
     rack: [{ n: 6, c: 'b' }, { n: 11, c: 'k' }, { n: 5, c: 'b' }, { n: 7, c: 'b' }, { n: 11, c: 'r' }, { n: 11, c: 'a' }],
-    hint: '',
+    optimalMoves: 6,
     generated: false,
   },
   {
     id: 'seed3',
     name: 'Triple threat',
     diff: 'hard',
+    grid: EMPTY_GRID(),
     rack: [{ n: 4, c: 'r' }, { n: 10, c: 'k' }, { n: 8, c: 'k' }, { n: 3, c: 'r' }, { n: 5, c: 'r' }, { n: 10, c: 'b' }, { n: 10, c: 'a' }, { n: 7, c: 'k' }, { n: 9, c: 'k' }],
-    hint: '',
+    optimalMoves: 9,
     generated: false,
   },
 ]

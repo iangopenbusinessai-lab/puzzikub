@@ -19,8 +19,9 @@ export interface Puzzle {
   id: string
   name: string
   diff: Difficulty
-  rack: Tile[]       // ALL tiles — player places everything
-  hint: string
+  grid: Grid
+  rack: Tile[]
+  optimalMoves: number
   generated: boolean
 }
 

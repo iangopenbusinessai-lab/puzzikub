@@ -29,9 +29,8 @@ function reducer(state: State, action: Action): State {
   switch (action.type) {
 
     case 'LOAD': {
-      const emptyGrid: Grid = Array.from({ length: 6 }, () => Array(10).fill(null))
       return {
-        grid: emptyGrid,
+        grid: deepCopyGrid(action.puzzle.grid),
         rack: [...action.puzzle.rack],
         history: [],
         moves: 0,
@@ -137,8 +136,7 @@ export function usePlayState() {
   const initialState = useRef<{ grid: Grid; rack: Tile[] } | null>(null)
 
   const loadPuzzle = useCallback((p: Puzzle) => {
-    const emptyGrid: Grid = Array.from({ length: 6 }, () => Array(10).fill(null))
-    initialState.current = { grid: emptyGrid, rack: [...p.rack] }
+    initialState.current = { grid: deepCopyGrid(p.grid), rack: [...p.rack] }
     dispatch({ type: 'LOAD', puzzle: p })
   }, [])
 

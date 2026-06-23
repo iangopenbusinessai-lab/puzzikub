@@ -62,8 +62,9 @@ export function useEditor() {
       id: crypto.randomUUID(),
       name: name.trim(),
       diff,
-      rack: allTiles,
-      hint: '',
+      grid,
+      rack,
+      optimalMoves: rack.length,
       generated: false,
     }
   }, [grid, rack, name, diff])
