@@ -20,9 +20,10 @@ type Filter = 'all' | Puzzle['diff']
 const DIFFS: Puzzle['diff'][] = ['easy', 'medium', 'hard']
 
 const DIFF_BADGE: Record<Puzzle['diff'], CSSProperties> = {
-  easy:   { background: '#EAF3DE', color: '#27500A' },
-  medium: { background: '#FAEEDA', color: '#633806' },
-  hard:   { background: '#FCEBEB', color: '#791F1F' },
+  easy:    { background: '#EAF3DE', color: '#27500A' },
+  medium:  { background: '#FAEEDA', color: '#633806' },
+  hard:    { background: '#FCEBEB', color: '#791F1F' },
+  extreme: { background: '#F0E6FF', color: '#4A1080' },
 }
 
 const badgeBase: CSSProperties = {

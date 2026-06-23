@@ -10,7 +10,7 @@ export const NUM_COLOR: Record<Tile['c'], string> = {
   k: '#222',
 }
 
-export type Difficulty = 'easy' | 'medium' | 'hard'
+export type Difficulty = 'easy' | 'medium' | 'hard' | 'extreme'
 
 // Grid dimensions vary per puzzle (not always 6×10)
 export type Grid = (Tile | null)[][]
@@ -23,6 +23,7 @@ export interface Puzzle {
   rack: Tile[]
   optimalMoves: number
   generated: boolean
+  archetypeId?: string
 }
 
 export interface DragSrc {

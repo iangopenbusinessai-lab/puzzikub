@@ -1,5 +1,7 @@
 import type { Tile, Grid, Difficulty, Puzzle } from '../types'
 import { isValidRun, isValidGroup } from './validator'
+import { solveBag } from './solver'
+import { buildRunToGroup, type ArchetypeType } from './archetypes'
 
 const COLORS: Tile['c'][] = ['r', 'b', 'a', 'k']
 
@@ -98,6 +100,8 @@ function legalExtensions(sets: Tile[][], used: Set<string>): Tile[] {
 }
 
 export function generatePuzzle(diff: Difficulty): Puzzle | null {
+  if (diff === 'extreme') return generateArchetype('run-to-group', diff)
+
   const numSets = diff === 'easy' ? 2 : diff === 'medium' ? 3 : randomInt(4, 6)
   const numExtra =
     diff === 'easy'   ? randomInt(2, 3) :
@@ -113,6 +117,9 @@ export function generatePuzzle(diff: Difficulty): Puzzle | null {
     if (extensions.length < numExtra) continue
 
     const rack = shuffle(extensions).slice(0, numExtra)
+    const allTiles = [...sets.flat(), ...rack]
+    if (!solveBag(allTiles).solvable) continue
+
     const grid = layOnGrid(sets)
 
     return {
@@ -126,5 +133,25 @@ export function generatePuzzle(diff: Difficulty): Puzzle | null {
     }
   }
 
+  return null
+}
+
+export function generateArchetype(type: ArchetypeType, diff: Difficulty): Puzzle | null {
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const result = buildRunToGroup(diff)
+    if (!result) continue
+    if (!solveBag(result.allTiles).solvable) continue
+
+    return {
+      id: `arch_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      name: `${diff} puzzle`,
+      diff,
+      grid: result.grid,
+      rack: result.rack,
+      optimalMoves: result.rack.length,
+      generated: true,
+      archetypeId: type,
+    }
+  }
   return null
 }
