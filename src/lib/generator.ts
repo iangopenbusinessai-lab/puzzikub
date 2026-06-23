@@ -99,6 +99,52 @@ function legalExtensions(sets: Tile[][], used: Set<string>): Tile[] {
   return extensions
 }
 
+// Returns ambiguity and false-ambiguity scores for a rack against a board's sets.
+function computeScores(
+  rack: Tile[],
+  boardSets: Tile[][],
+  allTiles: Tile[]
+): { ambiguity: number; falseAmbiguity: number } {
+  let ambiguity = 0
+  let falseAmbiguity = 0
+
+  for (const t of rack) {
+    let runCount = 0
+    let groupCount = 0
+
+    for (const set of boardSets) {
+      if (isValidRun(set)) {
+        const c = set[0].c
+        const minN = Math.min(...set.map(s => s.n))
+        const maxN = Math.max(...set.map(s => s.n))
+        if (t.c === c && (t.n === minN - 1 || t.n === maxN + 1)) runCount++
+      } else if (isValidGroup(set)) {
+        const n = set[0].n
+        const groupColors = new Set(set.map(s => s.c))
+        if (t.n === n && !groupColors.has(t.c) && set.length < 4) groupCount++
+      }
+    }
+
+    // Can t start a new group with other rack tiles of same value?
+    const sameNumDiffColor = rack.filter(r => r !== t && r.n === t.n && r.c !== t.c)
+    const newGroupPossible = sameNumDiffColor.length >= 2 ? 1 : 0
+
+    ambiguity += runCount + groupCount + newGroupPossible
+
+    // False ambiguity: t has obvious run extension but removing it breaks solvability
+    if (runCount > 0) {
+      let removed = false
+      const remaining = allTiles.filter(x => {
+        if (!removed && x.n === t.n && x.c === t.c) { removed = true; return false }
+        return true
+      })
+      if (!solveBag(remaining).solvable) falseAmbiguity++
+    }
+  }
+
+  return { ambiguity, falseAmbiguity }
+}
+
 export function generatePuzzle(diff: Difficulty): Puzzle | null {
   if (diff === 'extreme') return generateArchetype('run-to-group', diff)
 
@@ -119,6 +165,15 @@ export function generatePuzzle(diff: Difficulty): Puzzle | null {
     const rack = shuffle(extensions).slice(0, numExtra)
     const allTiles = [...sets.flat(), ...rack]
     if (!solveBag(allTiles).solvable) continue
+
+    const { ambiguity, falseAmbiguity } = computeScores(rack, sets, allTiles)
+
+    const meetsThreshold =
+      diff === 'easy'   ? ambiguity <= 3 && falseAmbiguity === 0 :
+      diff === 'medium' ? ambiguity >= 4 && ambiguity <= 7 && falseAmbiguity <= 1 :
+      /* hard */          ambiguity >= 8 && ambiguity <= 13 && falseAmbiguity >= 1 && falseAmbiguity <= 2
+
+    if (!meetsThreshold) continue
 
     const grid = layOnGrid(sets)
 

@@ -1,9 +1,6 @@
 import type { Tile, Grid, Difficulty } from '../types'
 import { solveBag } from './solver'
 
-// Verify: generateArchetype('run-to-group', 'extreme') → non-null Puzzle
-// where solveBag([...grid.flat().filter(Boolean), ...rack]).solvable === true
-
 export type ArchetypeType = 'run-to-group'
 
 const ALL_COLORS: Tile['c'][] = ['r', 'b', 'a', 'k']
@@ -27,13 +24,18 @@ export interface ArchetypeResult {
   allTiles: Tile[]
 }
 
-// Type 1: N runs of length L → L groups of size N
-// Board: (N-1) full runs; rack: all L tiles of the Nth color
-// Partition A (valid): N runs of length L (L≥3)
-// Partition B (valid): L groups of size N (N∈{3,4})
+// Type 1: N colors × L values tile universe.
+// Board A = N full runs (one per row). Disrupt by removing K tiles into rack.
+// Solution B = L groups of size N — same tiles, different structure.
+// Rack tiles are mixed colors so the run-to-group transformation is non-obvious.
 export function buildRunToGroup(diff: Difficulty): ArchetypeResult | null {
   const N = diff === 'hard' ? 3 : 4
   const L = diff === 'extreme' ? randomInt(4, 5) : randomInt(3, 4)
+  const K = diff === 'extreme' ? randomInt(4, 6) : randomInt(2, 3)
+
+  // Need enough removable slots: each run can lose at most L-2 tiles
+  // Total removable = N × (L-2). Need K ≤ N×(L-2).
+  if (K > N * (L - 2)) return null
 
   const start = randomInt(1, 14 - L)
   const colors = shuffle([...ALL_COLORS]).slice(0, N) as Tile['c'][]
@@ -45,17 +47,36 @@ export function buildRunToGroup(diff: Difficulty): ArchetypeResult | null {
 
   if (!solveBag(allTiles).solvable) return null
 
+  // Build full grid: N rows of runs
   const numCols = Math.max(10, L + 2)
-  const numRows = (N - 1) + 2
+  const numRows = N + 2
   const grid: Grid = Array.from({ length: numRows }, () => Array(numCols).fill(null))
-
-  for (let i = 0; i < N - 1; i++)
+  for (let i = 0; i < N; i++)
     for (let col = 0; col < L; col++)
       grid[i][col] = { n: start + col, c: colors[i] }
 
-  const rack: Tile[] = []
-  for (let v = start; v < start + L; v++)
-    rack.push({ n: v, c: colors[N - 1] })
+  // Disruption: pick K positions to remove, each run retains ≥ 2 tiles
+  const runRemaining = Array(N).fill(L)
+  const positions = shuffle(
+    Array.from({ length: N * L }, (_, idx) => ({ row: Math.floor(idx / L), col: idx % L }))
+  )
 
-  return { grid, rack, allTiles }
+  const removed: { row: number; col: number }[] = []
+  for (const pos of positions) {
+    if (removed.length >= K) break
+    if (runRemaining[pos.row] > 2) {
+      removed.push(pos)
+      runRemaining[pos.row]--
+    }
+  }
+  if (removed.length < K) return null
+
+  // Apply disruptions
+  const rack: Tile[] = []
+  for (const { row, col } of removed) {
+    rack.push(grid[row][col] as Tile)
+    grid[row][col] = null
+  }
+
+  return { grid, rack: shuffle(rack), allTiles }
 }
