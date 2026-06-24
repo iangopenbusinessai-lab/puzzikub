@@ -30,12 +30,12 @@ export interface ArchetypeResult {
 // Rack tiles are mixed colors so the run-to-group transformation is non-obvious.
 export function buildRunToGroup(diff: Difficulty): ArchetypeResult | null {
   const N = diff === 'hard' ? 3 : 4
-  const L = diff === 'extreme' ? randomInt(4, 5) : randomInt(3, 4)
-  const K = diff === 'extreme' ? randomInt(4, 6) : randomInt(2, 3)
+  const L = diff === 'extreme' ? randomInt(4, 5) : 4
+  const K = diff === 'extreme' ? randomInt(4, N * (L - 3)) : randomInt(3, L - 1)
 
-  // Need enough removable slots: each run can lose at most L-2 tiles
-  // Total removable = N × (L-2). Need K ≤ N×(L-2).
-  if (K > N * (L - 2)) return null
+  // Each run must keep ≥3 tiles, so at most L-3 removable per run.
+  // Total removable = N × (L-3). Need K ≤ N×(L-3).
+  if (K > N * (L - 3)) return null
 
   const start = randomInt(1, 14 - L)
   const colors = shuffle([...ALL_COLORS]).slice(0, N) as Tile['c'][]
@@ -55,27 +55,40 @@ export function buildRunToGroup(diff: Difficulty): ArchetypeResult | null {
     for (let col = 0; col < L; col++)
       grid[i][col] = { n: start + col, c: colors[i] }
 
-  // Disruption: pick K positions to remove, each run retains ≥ 2 tiles
-  const runRemaining = Array(N).fill(L)
-  const positions = shuffle(
-    Array.from({ length: N * L }, (_, idx) => ({ row: Math.floor(idx / L), col: idx % L }))
-  )
+  // Disruption: prefer middle tiles over endpoints to force restructuring
+  const allPositions = Array.from({ length: N * L }, (_, idx) => ({
+    row: Math.floor(idx / L), col: idx % L,
+  }))
+  const middles = allPositions.filter(p => p.col > 0 && p.col < L - 1)
+  const ends    = allPositions.filter(p => p.col === 0 || p.col === L - 1)
+  const ordered = [...shuffle(middles), ...shuffle(ends)]
 
+  const runRemaining = Array(N).fill(L)
   const removed: { row: number; col: number }[] = []
-  for (const pos of positions) {
+  for (const pos of ordered) {
     if (removed.length >= K) break
-    if (runRemaining[pos.row] > 2) {
+    if (runRemaining[pos.row] > 3) {
       removed.push(pos)
       runRemaining[pos.row]--
     }
   }
   if (removed.length < K) return null
 
+  // Ensure disruption touches at least half the runs
+  const rowsAffected = new Set(removed.map(p => p.row)).size
+  if (rowsAffected < Math.floor(K / 2)) return null
+
   // Apply disruptions
   const rack: Tile[] = []
   for (const { row, col } of removed) {
     rack.push(grid[row][col] as Tile)
     grid[row][col] = null
+  }
+
+  // Each board row must have 0 or ≥3 non-null tiles
+  for (let i = 0; i < N; i++) {
+    const count = grid[i].filter(t => t !== null).length
+    if (count === 1 || count === 2) return null
   }
 
   return { grid, rack: shuffle(rack), allTiles }

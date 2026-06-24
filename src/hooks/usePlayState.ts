@@ -1,6 +1,6 @@
 import { useReducer, useCallback, useRef } from 'react'
 import type { Tile, Grid, DragSrc, Puzzle } from '../types'
-import { validateGridOrBag, getInvalidCells } from '../lib/validator'
+import { validateGrid, getInvalidCells } from '../lib/validator'
 
 export type DropTarget = { to: 'grid'; row: number; col: number } | { to: 'rack' }
 
@@ -73,7 +73,7 @@ function reducer(state: State, action: Action): State {
         rack.push(tile)
       }
 
-      const newWon = rack.length === 0 && validateGridOrBag(grid)
+      const newWon = rack.length === 0 && validateGrid(grid)
       let newInvalidCells = new Set<string>()
       if (rack.length === 0 && !newWon) {
         newInvalidCells = getInvalidCells(grid)
