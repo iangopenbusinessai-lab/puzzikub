@@ -135,29 +135,37 @@ export function buildDominoChain(diff: Difficulty): ArchetypeResult | null {
   // Rack = chain starter + displaced tiles from runs (all but run[chainLen])
   // We remove the HIGH tile from each run 0..chainLen-1 into rack
   const rack: Tile[] = [chainStarter]
-  const gridTiles: Tile[] = []
+  const gridRows: Tile[][] = []
   for (let i = 0; i < runs.length; i++) {
     const run = runs[i]
     if (i < chainLen) {
       const maxN = Math.max(...run.map(t => t.n))
-      rack.push(run.find(t => t.n === maxN)!)
-      gridTiles.push(...run.filter(t => t.n !== maxN))
+      const displaced = run.find(t => t.n === maxN)!
+      rack.push(displaced)
+      gridRows.push(run.filter(t => t !== displaced))
     } else {
-      gridTiles.push(...run)
+      gridRows.push([...run])
     }
+  }
+
+  const gridTiles = gridRows.flat()
+
+  // Each board row must have 0 or ≥3 tiles — 1 or 2 would be an invalid partial run
+  for (const row of gridRows) {
+    if (row.length === 1 || row.length === 2) return null
   }
 
   // allTiles for solvability = gridTiles + rack (without duplicate chainStarter)
   const bagForSolve = [...gridTiles, ...rack]
   if (!solveBag(bagForSolve).solvable) return null
 
-  // Lay grid
+  // Lay grid: each run's remaining tiles go into their own row, left-aligned
   const numCols = Math.max(10, 5)
   const numRows = runs.length + 2
   const grid: Grid = Array.from({ length: numRows }, () => Array(numCols).fill(null))
   for (let i = 0; i < runs.length; i++) {
     let col = 0
-    for (const t of gridTiles.filter(x => x.c === colors[i])) {
+    for (const t of gridRows[i]) {
       grid[i][col++] = t
     }
   }
@@ -202,13 +210,11 @@ export function buildFalseExtension(diff: Difficulty): ArchetypeResult | null {
   // boardGroup now has 2 tiles (invalid alone) — needs rackTile to complete to 3
 
   // Add an optional decoy tile
-  const decoyColors = ALL_COLORS.filter(c => c !== runColor && !boardGroup.map(t => t.c).includes(c))
   const decoyVal = runStart - 1  // one before run (another "obvious" extension on low end)
   let decoy: Tile | null = null
-  if (decoyVal >= 1 && decoyColors.length > 0 && diff !== 'easy') {
-    const dc = decoyColors[randomInt(0, decoyColors.length - 1)]
-    const dk: string = `${decoyVal}_${dc}`
-    if (!keys.includes(dk)) {
+  if (decoyVal >= 1 && diff !== 'easy') {
+    const decoyKey = `${decoyVal}_${runColor}`
+    if (!keys.includes(decoyKey)) {
       decoy = { n: decoyVal, c: runColor }
       // decoy extends run on the LOW end — obvious but also wrong
     }

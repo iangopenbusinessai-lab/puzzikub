@@ -160,6 +160,25 @@ export function generatePuzzle(diff: Difficulty): Puzzle | null {
     return generateArchetype(type, diff)
   }
 
+  if (diff === 'hard' && Math.random() < 0.3) {
+    const hardTypes: ArchetypeType[] = ['domino-chain', 'false-extension']
+    const type = hardTypes[randomInt(0, 1)]
+    const result = tryBuildArchetype(type, diff, 3)
+    if (result && solveBag(result.allTiles).solvable) {
+      return {
+        id: `arch_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        name: `hard puzzle`,
+        diff,
+        grid: result.grid,
+        rack: result.rack,
+        optimalMoves: result.rack.length,
+        generated: true,
+        archetypeId: type,
+      }
+    }
+    // fall through to random generation if archetype fails
+  }
+
   const numSets = diff === 'easy' ? 2 : diff === 'medium' ? 3 : randomInt(4, 6)
   const numExtra =
     diff === 'easy'   ? randomInt(2, 3) :
@@ -181,9 +200,9 @@ export function generatePuzzle(diff: Difficulty): Puzzle | null {
     const ambiguity = computeAmbiguity(rack, sets)
 
     const meetsThreshold =
-      diff === 'easy'   ? ambiguity >= 1 && ambiguity <= 4 :
-      diff === 'medium' ? ambiguity >= 5 && ambiguity <= 9 :
-      /* hard */          ambiguity >= 10 && ambiguity <= 18
+      diff === 'easy'   ? ambiguity >= 1 :
+      diff === 'medium' ? ambiguity >= 2 :
+      /* hard */          ambiguity >= 3
 
     if (!meetsThreshold) continue
 

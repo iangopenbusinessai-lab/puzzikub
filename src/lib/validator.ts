@@ -81,7 +81,7 @@ function buildGroups(grid: Grid): GroupMaps {
 function isCovered(hGroup: Group | null, vGroup: Group | null): boolean {
   const hValid = !!(hGroup && hGroup.cells.length >= 3 && (isValidRun(hGroup.tiles) || isValidGroup(hGroup.tiles)))
   const vValid = !!(vGroup && vGroup.cells.length >= 3 && (isValidRun(vGroup.tiles) || isValidGroup(vGroup.tiles)))
-  return hValid !== vValid
+  return hValid || vValid
 }
 
 export function validateGrid(grid: Grid): boolean {
@@ -94,6 +94,9 @@ export function validateGrid(grid: Grid): boolean {
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       if (!grid[r][c]) continue
+      const hLen = hOf[r][c]?.cells.length ?? 0
+      const vLen = vOf[r][c]?.cells.length ?? 0
+      if (hLen < 3 && vLen < 3) return false
       if (!isCovered(hOf[r][c], vOf[r][c])) return false
     }
   }
