@@ -99,14 +99,8 @@ function legalExtensions(sets: Tile[][], used: Set<string>): Tile[] {
   return extensions
 }
 
-// Returns ambiguity and false-ambiguity scores for a rack against a board's sets.
-function computeScores(
-  rack: Tile[],
-  boardSets: Tile[][],
-  allTiles: Tile[]
-): { ambiguity: number; falseAmbiguity: number } {
+function computeAmbiguity(rack: Tile[], boardSets: Tile[][]): number {
   let ambiguity = 0
-  let falseAmbiguity = 0
 
   for (const t of rack) {
     let runCount = 0
@@ -125,13 +119,28 @@ function computeScores(
       }
     }
 
-    // Can t start a new group with other rack tiles of same value?
     const sameNumDiffColor = rack.filter(r => r !== t && r.n === t.n && r.c !== t.c)
     const newGroupPossible = sameNumDiffColor.length >= 2 ? 1 : 0
 
     ambiguity += runCount + groupCount + newGroupPossible
+  }
 
-    // False ambiguity: t has obvious run extension but removing it breaks solvability
+  return ambiguity
+}
+
+// Kept for future use but not called during generation (too slow — N solveBag calls per rack tile).
+export function computeFalseAmbiguity(rack: Tile[], boardSets: Tile[][], allTiles: Tile[]): number {
+  let falseAmbiguity = 0
+  for (const t of rack) {
+    let runCount = 0
+    for (const set of boardSets) {
+      if (isValidRun(set)) {
+        const c = set[0].c
+        const minN = Math.min(...set.map(s => s.n))
+        const maxN = Math.max(...set.map(s => s.n))
+        if (t.c === c && (t.n === minN - 1 || t.n === maxN + 1)) runCount++
+      }
+    }
     if (runCount > 0) {
       let removed = false
       const remaining = allTiles.filter(x => {
@@ -141,14 +150,13 @@ function computeScores(
       if (!solveBag(remaining).solvable) falseAmbiguity++
     }
   }
-
-  return { ambiguity, falseAmbiguity }
+  return falseAmbiguity
 }
 
 export function generatePuzzle(diff: Difficulty): Puzzle | null {
   if (diff === 'extreme') {
     const archetypes: ArchetypeType[] = ['run-to-group', 'domino-chain', 'false-extension']
-    const type = archetypes[randomInt(0, archetypes.length - 1)]
+    const type = shuffle(archetypes)[0]
     return generateArchetype(type, diff)
   }
 
@@ -158,7 +166,7 @@ export function generatePuzzle(diff: Difficulty): Puzzle | null {
     diff === 'medium' ? randomInt(3, 5) :
     randomInt(5, 8)
 
-  for (let attempt = 0; attempt < 20; attempt++) {
+  for (let attempt = 0; attempt < 50; attempt++) {
     const sets = buildSolutionSets(numSets, diff)
     if (!sets) continue
 
@@ -170,12 +178,12 @@ export function generatePuzzle(diff: Difficulty): Puzzle | null {
     const allTiles = [...sets.flat(), ...rack]
     if (!solveBag(allTiles).solvable) continue
 
-    const { ambiguity, falseAmbiguity } = computeScores(rack, sets, allTiles)
+    const ambiguity = computeAmbiguity(rack, sets)
 
     const meetsThreshold =
-      diff === 'easy'   ? ambiguity <= 3 && falseAmbiguity === 0 :
-      diff === 'medium' ? ambiguity >= 4 && ambiguity <= 7 && falseAmbiguity <= 1 :
-      /* hard */          ambiguity >= 8 && ambiguity <= 13 && falseAmbiguity >= 1 && falseAmbiguity <= 2
+      diff === 'easy'   ? ambiguity >= 1 && ambiguity <= 4 :
+      diff === 'medium' ? ambiguity >= 5 && ambiguity <= 9 :
+      /* hard */          ambiguity >= 10 && ambiguity <= 18
 
     if (!meetsThreshold) continue
 
@@ -195,14 +203,27 @@ export function generatePuzzle(diff: Difficulty): Puzzle | null {
   return null
 }
 
-export function generateArchetype(type: ArchetypeType, diff: Difficulty): Puzzle | null {
-  for (let attempt = 0; attempt < 20; attempt++) {
+function tryBuildArchetype(type: ArchetypeType, diff: Difficulty, attempts: number): { grid: Grid; rack: Tile[]; allTiles: Tile[] } | null {
+  for (let i = 0; i < attempts; i++) {
     const result =
-      type === 'run-to-group'    ? buildRunToGroup(diff) :
-      type === 'domino-chain'    ? buildDominoChain(diff) :
-      /* false-extension */        buildFalseExtension(diff)
+      type === 'run-to-group'  ? buildRunToGroup(diff) :
+      type === 'domino-chain'  ? buildDominoChain(diff) :
+      buildFalseExtension(diff)
     if (!result) continue
     if (!solveBag(result.allTiles).solvable) continue
+    return result
+  }
+  return null
+}
+
+export function generateArchetype(type: ArchetypeType, diff: Difficulty): Puzzle | null {
+  const allTypes: ArchetypeType[] = ['run-to-group', 'domino-chain', 'false-extension']
+  const order: ArchetypeType[] = [type, ...shuffle(allTypes.filter(t => t !== type))]
+
+  for (const t of order) {
+    const maxAttempts = t === type ? 5 : 3
+    const result = tryBuildArchetype(t, diff, maxAttempts)
+    if (!result) continue
 
     return {
       id: `arch_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
@@ -212,7 +233,22 @@ export function generateArchetype(type: ArchetypeType, diff: Difficulty): Puzzle
       rack: result.rack,
       optimalMoves: result.rack.length,
       generated: true,
-      archetypeId: type,
+      archetypeId: t,
+    }
+  }
+
+  // Safety net: buildRunToGroup is guaranteed to succeed
+  const fallback = buildRunToGroup(diff)
+  if (fallback) {
+    return {
+      id: `arch_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      name: `${diff} puzzle`,
+      diff,
+      grid: fallback.grid,
+      rack: fallback.rack,
+      optimalMoves: fallback.rack.length,
+      generated: true,
+      archetypeId: 'run-to-group',
     }
   }
   return null

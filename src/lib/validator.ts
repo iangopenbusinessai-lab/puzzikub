@@ -1,4 +1,5 @@
 import type { Tile, Grid } from '../types'
+import { solveBag } from './solver'
 
 export function isValidRun(tiles: Tile[]): boolean {
   if (tiles.length < 3) return false
@@ -116,6 +117,14 @@ export function getInvalidCells(grid: Grid): Set<string> {
   }
 
   return invalid
+}
+
+export function validateGridOrBag(grid: Grid): boolean {
+  if (validateGrid(grid)) return true
+  const tiles = grid.flat().filter((t): t is Tile => t !== null)
+  if (tiles.length === 0) return false
+  const { solvable } = solveBag(tiles)
+  return solvable
 }
 
 export function getNewlyValidCells(prevGrid: Grid, newGrid: Grid): Set<string> {
