@@ -24,72 +24,45 @@ export interface ArchetypeResult {
   allTiles: Tile[]
 }
 
-// Type 1: N colors × L values tile universe.
-// Board A = N full runs (one per row). Disrupt by removing K tiles into rack.
-// Solution B = L groups of size N — same tiles, different structure.
-// Rack tiles are mixed colors so the run-to-group transformation is non-obvious.
+// Type 1: N colors × L values — board has N complete runs, rack has L tiles of
+// the (N+1)th color. Solution = L groups of N+1 tiles, one per value.
+// Player must rearrange ALL board tiles from horizontal runs into vertical groups
+// and slot each rack tile into its value group.
 export function buildRunToGroup(diff: Difficulty): ArchetypeResult | null {
   const N = diff === 'hard' ? 3 : 4
-  const L = diff === 'extreme' ? randomInt(4, 5) : 4
-  const K = diff === 'extreme' ? randomInt(4, N * (L - 3)) : randomInt(3, L - 1)
 
-  // Each run must keep ≥3 tiles, so at most L-3 removable per run.
-  // Total removable = N × (L-3). Need K ≤ N×(L-3).
-  if (K > N * (L - 3)) return null
+  // Need N+1 distinct colors. Only 4 available, so N=4 (extreme) cannot work here.
+  // Extreme falls through to domino-chain / false-extension in generateArchetype.
+  if (N >= ALL_COLORS.length) return null
 
+  const L = 4
   const start = randomInt(1, 14 - L)
-  const colors = shuffle([...ALL_COLORS]).slice(0, N) as Tile['c'][]
 
-  const allTiles: Tile[] = []
-  for (const c of colors)
+  const allColors = shuffle([...ALL_COLORS]) as Tile['c'][]
+  const boardColors = allColors.slice(0, N) as Tile['c'][]
+  const rackColor = allColors[N] as Tile['c']
+
+  // Board: N complete runs, one per boardColor — no gaps
+  const boardTiles: Tile[] = []
+  for (const c of boardColors)
     for (let v = start; v < start + L; v++)
-      allTiles.push({ n: v, c })
+      boardTiles.push({ n: v, c })
 
+  // Rack: L tiles of rackColor, one per value — completes each value-group to N+1
+  const rack: Tile[] = []
+  for (let v = start; v < start + L; v++)
+    rack.push({ n: v, c: rackColor })
+
+  const allTiles = [...boardTiles, ...rack]
   if (!solveBag(allTiles).solvable) return null
 
-  // Build full grid: N rows of runs
+  // Lay grid: N rows of complete runs, left-aligned, no nulls in set rows
   const numCols = Math.max(10, L + 2)
   const numRows = N + 2
   const grid: Grid = Array.from({ length: numRows }, () => Array(numCols).fill(null))
   for (let i = 0; i < N; i++)
     for (let col = 0; col < L; col++)
-      grid[i][col] = { n: start + col, c: colors[i] }
-
-  // Disruption: prefer middle tiles over endpoints to force restructuring
-  const allPositions = Array.from({ length: N * L }, (_, idx) => ({
-    row: Math.floor(idx / L), col: idx % L,
-  }))
-  const middles = allPositions.filter(p => p.col > 0 && p.col < L - 1)
-  const ends    = allPositions.filter(p => p.col === 0 || p.col === L - 1)
-  const ordered = [...shuffle(middles), ...shuffle(ends)]
-
-  const runRemaining = Array(N).fill(L)
-  const removed: { row: number; col: number }[] = []
-  for (const pos of ordered) {
-    if (removed.length >= K) break
-    if (runRemaining[pos.row] > 3) {
-      removed.push(pos)
-      runRemaining[pos.row]--
-    }
-  }
-  if (removed.length < K) return null
-
-  // Ensure disruption touches at least half the runs
-  const rowsAffected = new Set(removed.map(p => p.row)).size
-  if (rowsAffected < Math.floor(K / 2)) return null
-
-  // Apply disruptions
-  const rack: Tile[] = []
-  for (const { row, col } of removed) {
-    rack.push(grid[row][col] as Tile)
-    grid[row][col] = null
-  }
-
-  // Each board row must have 0 or ≥3 non-null tiles
-  for (let i = 0; i < N; i++) {
-    const count = grid[i].filter(t => t !== null).length
-    if (count === 1 || count === 2) return null
-  }
+      grid[i][col] = { n: start + col, c: boardColors[i] }
 
   return { grid, rack: shuffle(rack), allTiles }
 }

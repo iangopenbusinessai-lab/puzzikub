@@ -70,33 +70,40 @@ function layOnGrid(sets: Tile[][]): Grid {
   return grid
 }
 
-function legalExtensions(sets: Tile[][], used: Set<string>): Tile[] {
-  const extensions: Tile[] = []
+function generateExtraRack(sets: Tile[][], used: Set<string>, count: number): Tile[] | null {
+  const candidates: Tile[] = []
   for (const set of sets) {
     if (isValidRun(set)) {
       const minN = Math.min(...set.map(t => t.n))
       const maxN = Math.max(...set.map(t => t.n))
       const c = set[0].c
-      if (minN > 1) {
-        const t: Tile = { n: minN - 1, c }
-        if (!used.has(tileKey(t))) extensions.push(t)
-      }
-      if (maxN < 13) {
-        const t: Tile = { n: maxN + 1, c }
-        if (!used.has(tileKey(t))) extensions.push(t)
+      if (minN > 1) candidates.push({ n: minN - 1, c })
+      if (maxN < 13) candidates.push({ n: maxN + 1, c })
+      for (const v of set.map(t => t.n)) {
+        for (const c2 of COLORS) {
+          if (c2 !== c) candidates.push({ n: v, c: c2 })
+        }
       }
     } else if (isValidGroup(set)) {
       const n = set[0].n
-      const usedColors = new Set(set.map(t => t.c))
+      const existingColors = new Set(set.map(t => t.c))
       for (const c of COLORS) {
-        if (!usedColors.has(c)) {
-          const t: Tile = { n, c }
-          if (!used.has(tileKey(t))) extensions.push(t)
-        }
+        if (!existingColors.has(c)) candidates.push({ n, c })
       }
     }
   }
-  return extensions
+
+  const result: Tile[] = []
+  const usedCopy = new Set(used)
+  for (const t of shuffle(candidates)) {
+    if (result.length >= count) break
+    const k = tileKey(t)
+    if (!usedCopy.has(k)) {
+      result.push(t)
+      usedCopy.add(k)
+    }
+  }
+  return result.length >= count ? result : null
 }
 
 function computeAmbiguity(rack: Tile[], boardSets: Tile[][]): number {
@@ -179,21 +186,20 @@ export function generatePuzzle(diff: Difficulty): Puzzle | null {
     // fall through to random generation if archetype fails
   }
 
-  const numSets = diff === 'easy' ? 2 : diff === 'medium' ? 3 : randomInt(4, 6)
+  const numSets = diff === 'easy' ? 2 : diff === 'medium' ? 3 : randomInt(3, 5)
   const numExtra =
-    diff === 'easy'   ? randomInt(2, 3) :
-    diff === 'medium' ? randomInt(3, 5) :
-    randomInt(5, 8)
+    diff === 'easy'   ? randomInt(1, 2) :
+    diff === 'medium' ? randomInt(2, 3) :
+    randomInt(3, 5)
 
   for (let attempt = 0; attempt < 50; attempt++) {
     const sets = buildSolutionSets(numSets, diff)
     if (!sets) continue
 
     const used = new Set<string>(sets.flat().map(tileKey))
-    const extensions = legalExtensions(sets, used)
-    if (extensions.length < numExtra) continue
+    const rack = generateExtraRack(sets, used, numExtra)
+    if (!rack) continue
 
-    const rack = shuffle(extensions).slice(0, numExtra)
     const allTiles = [...sets.flat(), ...rack]
     if (!solveBag(allTiles).solvable) continue
 
