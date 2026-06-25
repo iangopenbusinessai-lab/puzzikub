@@ -1,5 +1,6 @@
 import type { Tile, Grid, Difficulty } from '../types'
 import { solveBag } from './solver'
+import { isValidRun, isValidGroup } from './validator'
 
 export type ArchetypeType = 'run-to-group' | 'domino-chain' | 'false-extension'
 
@@ -24,10 +25,9 @@ export interface ArchetypeResult {
   allTiles: Tile[]
 }
 
-// Type 1: N colors × L values — board has N complete runs, rack has L tiles of
-// the (N+1)th color. Solution = L groups of N+1 tiles, one per value.
-// Player must rearrange ALL board tiles from horizontal runs into vertical groups
-// and slot each rack tile into its value group.
+// Type 1: N colors × L values — board has N runs each missing one tile at a
+// unique column. Rack = the N removed tiles (different colors, different values
+// → cannot form any valid set alone). Solution = L groups of N tiles.
 export function buildRunToGroup(diff: Difficulty): ArchetypeResult | null {
   const N = 3
   const L = diff === 'extreme' ? 5 : 4
@@ -35,29 +35,43 @@ export function buildRunToGroup(diff: Difficulty): ArchetypeResult | null {
 
   const allColors = shuffle([...ALL_COLORS]) as Tile['c'][]
   const boardColors = allColors.slice(0, N) as Tile['c'][]
-  const rackColor = allColors[N] as Tile['c']
 
-  // Board: N complete runs, one per boardColor — no gaps
-  const boardTiles: Tile[] = []
-  for (const c of boardColors)
-    for (let v = start; v < start + L; v++)
-      boardTiles.push({ n: v, c })
-
-  // Rack: L tiles of rackColor, one per value — completes each value-group to N+1
-  const rack: Tile[] = []
-  for (let v = start; v < start + L; v++)
-    rack.push({ n: v, c: rackColor })
-
-  const allTiles = [...boardTiles, ...rack]
-  if (!solveBag(allTiles).solvable) return null
-
-  // Lay grid: N rows of complete runs, left-aligned, no nulls in set rows
+  // Build full grid: N rows of complete runs, left-aligned
   const numCols = Math.max(10, L + 2)
   const numRows = N + 2
   const grid: Grid = Array.from({ length: numRows }, () => Array(numCols).fill(null))
   for (let i = 0; i < N; i++)
     for (let col = 0; col < L; col++)
       grid[i][col] = { n: start + col, c: boardColors[i] }
+
+  // Pick one unique column per row for removal.
+  // Prefer interior cols [1..L-2] to avoid endpoint-only rack tiles forming groups;
+  // fall back to all cols if not enough interior positions (e.g. L=4, N=3).
+  const interiorCols = Array.from({ length: L - 2 }, (_, i) => i + 1)
+  const colPool = interiorCols.length >= N ? interiorCols : Array.from({ length: L }, (_, i) => i)
+  if (colPool.length < N) return null
+  const rackCols = shuffle(colPool).slice(0, N)
+
+  // Remove one tile per row at its assigned column
+  const rack: Tile[] = []
+  for (let i = 0; i < N; i++) {
+    const col = rackCols[i]
+    rack.push(grid[i][col] as Tile)
+    grid[i][col] = null
+  }
+
+  // Rack tiles have different colors (one per row) and different values
+  // (one per unique column), so they cannot form a run or group — safety check
+  if (isValidRun(rack) || isValidGroup(rack)) return null
+
+  // Each board row must retain ≥3 non-null tiles
+  for (let i = 0; i < N; i++) {
+    if (grid[i].filter(t => t !== null).length < 3) return null
+  }
+
+  const boardTiles = grid.flat().filter((t): t is Tile => t !== null)
+  const allTiles = [...boardTiles, ...rack]
+  if (!solveBag(allTiles).solvable) return null
 
   return { grid, rack: shuffle(rack), allTiles }
 }
