@@ -29,13 +29,8 @@ export interface ArchetypeResult {
 // Player must rearrange ALL board tiles from horizontal runs into vertical groups
 // and slot each rack tile into its value group.
 export function buildRunToGroup(diff: Difficulty): ArchetypeResult | null {
-  const N = diff === 'hard' ? 3 : 4
-
-  // Need N+1 distinct colors. Only 4 available, so N=4 (extreme) cannot work here.
-  // Extreme falls through to domino-chain / false-extension in generateArchetype.
-  if (N >= ALL_COLORS.length) return null
-
-  const L = 4
+  const N = 3
+  const L = diff === 'extreme' ? 5 : 4
   const start = randomInt(1, 14 - L)
 
   const allColors = shuffle([...ALL_COLORS]) as Tile['c'][]

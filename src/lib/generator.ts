@@ -79,11 +79,6 @@ function generateExtraRack(sets: Tile[][], used: Set<string>, count: number): Ti
       const c = set[0].c
       if (minN > 1) candidates.push({ n: minN - 1, c })
       if (maxN < 13) candidates.push({ n: maxN + 1, c })
-      for (const v of set.map(t => t.n)) {
-        for (const c2 of COLORS) {
-          if (c2 !== c) candidates.push({ n: v, c: c2 })
-        }
-      }
     } else if (isValidGroup(set)) {
       const n = set[0].n
       const existingColors = new Set(set.map(t => t.c))
@@ -162,28 +157,9 @@ export function computeFalseAmbiguity(rack: Tile[], boardSets: Tile[][], allTile
 
 export function generatePuzzle(diff: Difficulty): Puzzle | null {
   if (diff === 'extreme') {
-    const archetypes: ArchetypeType[] = ['run-to-group', 'domino-chain', 'false-extension']
+    const archetypes: ArchetypeType[] = ['run-to-group', 'run-to-group', 'domino-chain']
     const type = shuffle(archetypes)[0]
     return generateArchetype(type, diff)
-  }
-
-  if (diff === 'hard' && Math.random() < 0.3) {
-    const hardTypes: ArchetypeType[] = ['domino-chain', 'false-extension']
-    const type = hardTypes[randomInt(0, 1)]
-    const result = tryBuildArchetype(type, diff, 3)
-    if (result && solveBag(result.allTiles).solvable) {
-      return {
-        id: `arch_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-        name: `hard puzzle`,
-        diff,
-        grid: result.grid,
-        rack: result.rack,
-        optimalMoves: result.rack.length,
-        generated: true,
-        archetypeId: type,
-      }
-    }
-    // fall through to random generation if archetype fails
   }
 
   const numSets = diff === 'easy' ? 2 : diff === 'medium' ? 3 : randomInt(3, 5)
