@@ -1,5 +1,5 @@
 # Puzzikub — CLAUDE.md
-*Last updated: June 2026. Keep this file current after every major change.*
+*Last updated: June 2026 — post-Fable engine audit. Keep this current after every major change.*
 
 ## Project overview
 Rummikub-style clear-your-rack puzzle game on a free grid.
@@ -16,9 +16,9 @@ base must always be '/puzzikub/' — never change this, never remove it.
 ## Testing & verification workflow
 - Local dev: `npm run dev` → http://localhost:5173/puzzikub/
 - Live site: https://iangopenbusinessai-lab.github.io/puzzikub/
-  Person often tests the LIVE deployed site, not just localhost.
 - Deploy: `npm run deploy` (builds + pushes dist/ to gh-pages branch)
   Changes are NOT live until this runs, even after `git push` to main.
+- Correct order: git add/commit/push FIRST, then npm run deploy.
 - Person reports bugs via: browser screenshots, browser console output,
   PowerShell terminal output (Windows environment).
 
@@ -28,7 +28,12 @@ base must always be '/puzzikub/' — never change this, never remove it.
 3. Dynamic import() of .ts files does NOT work on deployed GitHub Pages.
 4. ESCALATION RULE: if a bug survives one fix attempt, STOP patching.
    Diagnose first. State root cause explicitly. Then fix.
-   (Drag bug took 8 patch attempts before this approach was applied.)
+5. SESSION HEALTH: if a single prompt takes more than ~5 minutes of
+   tool-call time, STOP it. Do not let a session run 10+ minutes or
+   burn 40k+ tokens — this has caused API errors and wasted work
+   multiple times. Split into smaller single-file prompts instead.
+   One fresh session per file change is the safe default for anything
+   touching solver.ts, generator.ts, archetypes.ts, or validator.ts.
 
 ---
 
@@ -47,7 +52,7 @@ base must always be '/puzzikub/' — never change this, never remove it.
 ## Core types (src/types.ts)
 ```ts
 interface Tile { n: number; c: 'r' | 'b' | 'a' | 'k' }
-type Grid = (Tile | null)[][]   // variable size per puzzle
+type Grid = (Tile | null)[][]
 type Difficulty = 'easy' | 'medium' | 'hard' | 'extreme'
 type Screen = 'play' | 'library' | 'editor'
 
@@ -55,11 +60,11 @@ interface Puzzle {
   id: string
   name: string
   diff: Difficulty
-  grid: Grid          // starting board — fully solved sets visible
-  rack: Tile[]        // extra tiles player must incorporate
-  optimalMoves: number
+  grid: Grid          // starting board — fully solved, NO gaps, ever
+  rack: Tile[]         // extra tiles player must incorporate
+  optimalMoves: number // computed from construction, not searched
   generated: boolean
-  archetypeId?: string  // which archetype template generated this
+  archetypeId?: string
 }
 
 interface DragSrc {
@@ -69,12 +74,6 @@ interface DragSrc {
   col?: number
 }
 
-// Theme types
-type BackgroundStyle = 'none'|'glass-glow'|'wood-grain'|'neon-veil'|'paper-grain'
-type TileStyle = 'plain'|'glass'|'ceramic'|'neon-outline'|'paper'
-type ThemePreset = 'minimalist'|'glass'|'wood'|'neon'|'paper'
-
-// Exported constant — import from types.ts, never redefine elsewhere
 export const NUM_COLOR: Record<Tile['c'], string> = {
   r: '#A32D2D', b: '#185FA5', a: '#BA7517', k: '#222222'
 }
@@ -82,268 +81,207 @@ export const NUM_COLOR: Record<Tile['c'], string> = {
 
 ---
 
-## ENGINE ARCHITECTURE (src/lib/)
+## ENGINE ARCHITECTURE (src/lib/) — post-audit ground truth
 
-### The core insight (from van Rijn et al. 2016)
-The Rummikub puzzle with fixed k=4 suits, m=1 copy per tile is solvable
-in O(n) time via dynamic programming — NOT brute-force backtracking.
-The solver works on a TILE BAG (flat array), not grid positions.
-Grid is purely a UI concern. Solvability is a bag property.
+### The one rule that matters most
+**A puzzle is only valid to ship if the "obvious" move fails.** Every
+prior version of this generator regressed to fill-in-the-blank because
+nothing ever checked whether the naive placement wins. That check —
+`isTrivial()` — is now mandatory and gates every generated puzzle.
+Nothing else in this section matters if that gate is skipped.
 
-### Solver (src/lib/solver.ts) — VAN RIJN DP
+### Solver (src/lib/solver.ts) — van Rijn DP, mostly correct, two bugs
 ```ts
 export interface SolveResult {
   solvable: boolean
-  // tile assignment when solvable:
-  assignment?: Map<string, 'run' | 'group'>  // tileKey → assignment
+  assignment?: Map<string, 'run' | 'group'>
 }
-
 export function solveBag(tiles: Tile[]): SolveResult
 ```
+Algorithm is right: state = (value 1-13, run-length per color in
+{0,1,2,3+}), DP over values, group enumeration (no group / C(present,3)
+/ group-of-4), memoized. Matches van Rijn et al. arXiv:1604.07553.
 
-ALGORITHM — dynamic programming over values 1..13:
-  State: (value: number, runLengths: [r,b,a,k] each in {0,1,2,3+})
-    → 14 values × 4^4 = 3584 states max, all reachable states memoized
+KNOWN BUGS TO FIX:
+1. `solveBag([])` currently returns `solvable: true` (empty bag passes
+   trivially through the DP). Must return `false` — an empty tile
+   universe is never a valid puzzle.
+2. `assignment` is declared on `SolveResult` but never populated. Needs
+   a second top-down pass recording which group choice was taken at
+   each value along the winning path, building `Map<tileKey, 'run'|
+   'group'>`. Required for `optimalMoves` computation and goal-layout
+   construction — do not skip this.
 
-  At each value v, given tiles of that value in the bag:
-    1. Enumerate all valid GROUP formations from tiles at this value:
-       G(4,1) = 6 options: no group, C(4,3)=4 groups of 3, 1 group of 4
-    2. For remaining tiles at this value (not in groups):
-       Try all ways to continue/start runs for each color
-       A run becomes valid (scores) when it reaches length 3
-       Run state per color: 0=no run, 1=one tile, 2=two tiles, 3+=valid/extended
-    3. Recurse to value v+1 with updated run states
-    4. Memoize result for (value, runLengths) pair
+Do NOT use solveBag as part of the live win condition. It checks bag
+partitionability, not grid position. That conflation caused a prior bug
+where placing tiles anywhere on the board counted as a win.
 
-  Base case: value > 13 — valid only if all run states are 0 or 3+
-    (no incomplete runs of length 1 or 2 remaining)
-
-  Returns solvable=true if max score equals sum of all tile values.
-
-DO NOT use backtracking. DO NOT use elementFromPoint-style searches.
-The DP state space is small and polynomial — use it.
-
-### Generator (src/lib/generator.ts) — DUAL-SOLUTION ARCHITECTURE
+### Validator (src/lib/validator.ts) — DONE, do not modify without cause
 ```ts
-export function generatePuzzle(diff: Difficulty): Puzzle | null
-export function generateArchetype(type: ArchetypeType, diff: Difficulty): Puzzle | null
-```
-
-DUAL-SOLUTION APPROACH:
-  1. Build tile bag T (the full tile universe for this puzzle)
-  2. Find valid partition A of T → starting board (shown to player)
-  3. Find valid partition B of T → solution board (hidden, but verified)
-  4. rack = tiles whose set-assignment differs between A and B
-  5. Verify: solveBag(allTiles) = true for both A and B independently
-  6. Compute ambiguity score (see below)
-  7. Gate on difficulty thresholds
-
-AMBIGUITY SCORE — what makes puzzles feel hard:
-  For each rack tile t: count distinct valid set assignments in context of board A
-    assignment_count(t) = number of valid runs OR groups t could join
-  total_ambiguity = sum of assignment_count across all rack tiles
-  false_ambiguity = count of tiles where obvious placement → unsolvable
-    (detected by: solveBag(bag with t placed "obviously") = false)
-  difficulty_score = edit_distance(A, B) × (1 + false_ambiguity)
-
-DIFFICULTY THRESHOLDS:
-  easy:    edit_distance 1–2, ambiguity ≤ 2, false_ambiguity = 0
-  medium:  edit_distance 3–5, ambiguity 3–6, false_ambiguity 0–1
-  hard:    edit_distance 6–9, ambiguity 7–12, false_ambiguity 1–3
-  extreme: edit_distance 10+, ambiguity 13+, false_ambiguity 3+,
-           MUST use an archetype template (see below)
-
-ARCHETYPE TEMPLATES (src/lib/archetypes.ts):
-  type ArchetypeType = 'run-to-group' | 'domino-chain' | 'false-extension' | 'red-herring'
-
-  TYPE 1 — run-to-group-collapse:
-    A: N runs of same length L (e.g. 4 runs of length 4 = tiles 1–4 in each color)
-    B: L groups of size N (e.g. groups of 1s, 2s, 3s, 4s)
-    Same tiles, completely different structure. High ambiguity, non-obvious.
-    Rack = tiles needed to complete the groups that were "locked" in runs.
-    Example: board has 1b2b3b4b | 1r2r3r4r | 1a2a3a
-             rack: 4a 1k 2k 3k 4k
-             solution: groups {1b1r1a1k} {2b2r2a2k} {3b3r3a3k} {4b4r4a4k}
-
-  TYPE 2 — domino-chain:
-    A and B differ by a chain of interdependent tile moves.
-    Each move in the chain is forced by the previous one.
-    Chain length ≥ 3 for hard, ≥ 5 for extreme.
-
-  TYPE 3 — false-extension:
-    Rack tile looks like it extends run A (adjacent number, same color).
-    Placing it in run A makes another rack tile unplaceable (verified by solver).
-    Correct placement: tile goes into a group, requiring another tile to move.
-
-  TYPE 4 — red-herring:
-    Multiple rack tiles, each with an obvious-looking placement.
-    All obvious placements conflict with each other.
-    Player must find non-obvious ordering or non-obvious destination.
-
-### Validator (src/lib/validator.ts)
-```ts
+export function isValidRun(tiles: Tile[]): boolean
+export function isValidGroup(tiles: Tile[]): boolean
 export function validateGrid(grid: Grid): boolean
 export function getInvalidCells(grid: Grid): Set<string>
 export function getNewlyValidCells(prevGrid: Grid, newGrid: Grid): Set<string>
-export function isValidRun(tiles: Tile[]): boolean    // same color, consecutive, ≥3
-export function isValidGroup(tiles: Tile[]): boolean  // same number, diff colors, 3–4
 ```
+OR-based coverage (not XOR), shared `buildGroups` scan, explicit
+`hLen<3 && vLen<3` rejection. This file is correct as of the last audit.
+Win condition: `rack.length === 0 && validateGrid(grid)` — no bag fallback.
 
-CRITICAL RULE: vertical pairs (length 2) NEVER invalidate a tile that
-belongs to a valid horizontal group. Tiles in different rows sharing a
-column are independent — only horizontal groups count for win condition
-unless player deliberately stacks 3+ tiles vertically.
+### Generator (src/lib/generator.ts) — REWRITE REQUIRED
+Current `generateExtraRack` (easy/medium/hard path) produces ONLY tiles
+that extend a run endpoint or complete a group — i.e., tiles whose
+obvious placement always works. This is fill-in-the-blank by
+construction and must be deleted, not patched. `computeAmbiguity` and
+`computeFalseAmbiguity` are unreliable proxies for difficulty — delete
+both. Difficulty must be gated on verified construction parameters
+(block width L, number of blocks, decoy presence), never on superficial
+"could extend N sets" counts.
 
-Win = rack.length === 0 AND validateGrid(grid) = true
+### Archetypes (src/lib/archetypes.ts) — REWRITE REQUIRED
+`buildRunToGroup`, `buildDominoChain`, `buildFalseExtension` all
+currently punch holes in complete runs (remove an interior tile,
+leaving contiguous fragments of length 1-2 in that row). This produces
+a STARTING BOARD THAT FAILS validateGrid — the player sees red-highlighted
+invalid cells before making a single move. All three must be rewritten
+or deleted per the plan below.
+
+### THE CORRECT CONSTRUCTION — dual block + subset rack
+
+Core insight (verified sound — matches Latin rectangle row/column
+duality): an N×L grid of tiles (N colors, L consecutive values, N∈{3,4},
+L≥3) decomposes validly BOTH as N runs (rows) AND as L groups (columns).
+Same tiles, two structures.
+
+Correct puzzle construction:
+1. Board = ONE complete dual block laid out as N runs (typically N=3),
+   ZERO gaps. `validateGrid(board)` must pass before rack is even
+   generated.
+2. Rack = a STRICT SUBSET of the 4th color's tiles at value positions
+   inside the block's range (NOT the full L tiles of that color — a
+   full run-worth is a free-standing valid set the player can place
+   without touching the board, which is its own trivial failure mode
+   seen directly in user screenshots). Subset size must be small enough
+   that `formsValidSetAlone(rack)` is false.
+3. These rack tiles are the wrong color for every board run (can't
+   extend anything) and there are no groups yet on the board (can't
+   complete anything) — their only possible home is inside a group the
+   player creates by DISASSEMBLING the runs. This is what makes naive
+   reinsertion structurally impossible, verified by Check B below, not
+   assumed.
+4. Gate every candidate through:
+   - `validateGrid(board) === true`
+   - `solveBag([...boardTiles, ...rack]).solvable === true`
+   - `!isTrivial(board, rack)`
+   Discard and retry (fresh random N, L, start value, color choice,
+   subset) if any gate fails. Never hand-trust a construction — always
+   verify with code.
+
+### isTrivial() — the mandatory gate (does not exist yet, must be built)
+```ts
+function isTrivial(board: Grid, rack: Tile[]): boolean {
+  // Check A: does rack, or any subset of it (size >= 3), form a valid
+  // run or group on its own? If so the player just places it as a new
+  // row/column and never touches the board. Reject.
+  if (formsValidSetAlone(rack)) return true
+
+  // Check B: does placing every rack tile at its "obvious" spot (run
+  // endpoint extension or group completion) — with NO board tile
+  // relocation — immediately produce a valid grid? If so this is
+  // fill-in-the-blank. Reject.
+  const naive = attemptNaiveReinsertion(board, rack)
+  if (naive && validateGrid(naive)) return true
+
+  return false
+}
+```
+A puzzle only ships if reaching the win state requires moving at least
+one tile that started on the board. This replaces all prior ambiguity
+scoring.
+
+### Archetype status
+- Archetype 1 (dual-block collapse): the ONLY archetype currently
+  worth keeping, and it needs the rewrite above (subset rack, not full
+  column removal).
+- Domino-chain, false-extension: DELETE current implementations (both
+  produce invalid starting boards via interior-tile removal). May be
+  reintroduced later as a solver-verified decoy LAYERED ON TOP of a
+  working dual-block puzzle, not as standalone builders.
+
+### Difficulty scaling (construction parameters, not scores)
+- easy: N=3, L=3, rack subset size 1
+- medium: N=3, L=4, rack subset size 1-2
+- hard: N=3, L=5, rack subset size 2-3
+- extreme: N=3, L=6 or two compound dual blocks, rack subset size 3+,
+  optional verified decoy
+
+### optimalMoves
+Computed from construction (you built the disruption, you know the
+count) — never from a post-hoc search.
 
 ---
 
-## Game state (src/hooks/usePlayState.ts)
+## Game state (src/hooks/usePlayState.ts) — unchanged, correct
 ```
-State: grid, rack, history, moves, undos, won, optimalMoves,
-       invalidCells: Set<string>, lockInCells: Set<string>
-
-loadPuzzle(p: Puzzle):
-  grid = deepCopy(p.grid)
-  rack = [...p.rack]
-  initialState.current = deepCopy({grid, rack})  ← used by reset()
-  clear history/moves/undos/won/invalidCells
-
-drop(target):
-  snapshot to history before every mutation
-  RACK→GRID: remove from rack, place; if occupied → displaced to rack
-  GRID→GRID: swap cells
-  GRID→RACK: null the cell, append to rack
-  moves++
-  if rack.length===0: validateGrid → won or getInvalidCells
-
+loadPuzzle(p): grid=deepCopy(p.grid), rack=[...p.rack],
+  initialState.current = deepCopy for reset()
+drop(target): snapshot history, RACK→GRID / GRID→GRID / GRID→RACK,
+  moves++, if rack.length===0: validateGrid → won or getInvalidCells
 reset(): restore from initialState.current (NOT history[0])
 undo(): pop history, won=false, clear invalidCells
 ```
+Win condition: `rack.length === 0 && validateGrid(grid)` only.
 
 ---
 
 ## Drag system — CRITICAL RULES, NEVER VIOLATE
-Pure mouse events. Zero HTML5 drag API.
-
-- onMouseDown on tile → startDrag (useDrag.ts)
-- document mousemove → updatePos (only while drag !== null)
-- document mouseup → reads hoverTarget → calls drop()
-- onMouseEnter/Leave on cells → sets hoverTarget (NOT elementFromPoint)
-- DragPreview: position:fixed, pointerEvents:none, uses TileFace
-
-NEVER:
-- NO setPointerCapture
-- NO draggable attribute (not even draggable={false})
-- NO ondragstart handlers
-- data-nodrag="" on every tile div
-
-main.tsx MUST have both:
-  document.addEventListener('dragstart', e => e.preventDefault(), true)
-  document.addEventListener('mousedown', e => {
-    if ((e.target as HTMLElement).closest('[data-nodrag]')) e.preventDefault()
-  }, true)
+Pure mouse events. NO HTML5 drag API, NO draggable attribute,
+NO setPointerCapture. onMouseEnter/Leave for drop-target detection
+(not elementFromPoint). data-nodrag="" on every tile. main.tsx has
+global capture-phase dragstart preventDefault + mousedown preventDefault
+via [data-nodrag] closest-check.
 
 ---
 
-## Theme system (src/lib/themes.ts)
-| Preset     | Background  | Tile          |
-|------------|-------------|---------------|
-| minimalist | none        | plain         |
-| glass      | glass-glow  | glass         |
-| wood       | wood-grain  | ceramic       |
-| neon       | neon-veil   | neon-outline  |
-| paper      | paper-grain | paper         |
-
-- neon-veil = existing DarkVeil animated canvas
-- TileFace.tsx renders all 5 tile styles
-- DragPreview uses TileFace — must match active theme
-- User can mix background and tile style independently
-
----
-
-## Audio (src/lib/audio.ts)
-Web Audio API, single AudioContext singleton.
-  playPlace()      — soft snap, pitch-varied
-  playLockIn()     — two-tone chime when set becomes valid
-  playError()      — low thud for invalid placement
-  playWinFanfare() — rising 5-note arpeggio
+## Theme system, Audio, Visual effects — unchanged, working
+Five presets (minimalist/glass/wood/neon/paper) via src/lib/themes.ts +
+TileFace.tsx. Web Audio synthesis in src/lib/audio.ts. Keyframes in
+index.css. No changes needed to these systems.
 
 ---
 
 ## File responsibilities
 ```
-src/types.ts                  types + NUM_COLOR
-src/lib/solver.ts             solveBag(tiles): SolveResult  ← VAN RIJN DP
-src/lib/archetypes.ts         archetype templates + generators
-src/lib/generator.ts          generatePuzzle, generateArchetype
-src/lib/validator.ts          validateGrid, getInvalidCells, getNewlyValidCells
-src/lib/storage.ts            loadLibrary, saveLibrary
-src/lib/audio.ts              playPlace, playLockIn, playError, playWinFanfare
-src/lib/themes.ts             ThemePreset, THEME_PRESETS, labels
-src/hooks/usePlayState.ts     game state, drop, undo, reset, loadPuzzle
-src/hooks/useEditor.ts        editor state, buildPuzzle()
-src/hooks/useDrag.ts          drag state, startDrag, updatePos, endDrag
-src/components/NavBar.tsx     shared navigation (all 3 screens)
-src/components/TileFace.tsx   themed tile card rendering
-src/components/Board.tsx      grid + mouse events + TileFace
-src/components/Rack.tsx       rack + mouse events + TileFace
-src/components/DragPreview.tsx floating drag preview using TileFace
-src/components/StatsBar.tsx   moves/undos/rack count
-src/components/SettingsPanel.tsx settings (theme, light/dark, sound)
-src/components/Tutorial.tsx   first-visit overlay
-src/components/TilePicker.tsx editor tile picker (color wheel)
-src/screens/PlayScreen.tsx    play UI
-src/screens/LibraryScreen.tsx library list
-src/screens/EditorScreen.tsx  grid-based editor
-src/App.tsx                   router, theme/sound state, DarkVeil
-src/main.tsx                  global drag prevention, React root
+src/lib/solver.ts       solveBag — fix empty-bag bug + assignment reconstruction
+src/lib/validator.ts    DONE — do not modify
+src/lib/archetypes.ts   REWRITE — dual-block + subset rack, delete other two
+src/lib/generator.ts    REWRITE — delete generateExtraRack + ambiguity scoring,
+                         add isTrivial gate, wire new archetype construction
+                         for all difficulties (not just extreme)
 ```
 
 ---
 
-## Known active bugs (fix before new features)
-1. CRITICAL: generatePuzzle() returns null every attempt
-   Page stuck on "Generating puzzle...". Solver gate rejecting all
-   candidates. Root cause: current solver.ts is backtracking and likely
-   has a bug OR is timing out. NEW SOLVER (van Rijn DP) replaces it.
-2. Lag on live site — old backtracking solver may be running during drop().
-   New DP solver is O(n) and runs instantly. This fixes lag too.
-3. All tiles on rack — grid empty. Related to bug #1.
-4. Mobile drag — mouse-only. Needs touchstart/touchmove/touchend parallel.
+## Rewrite session plan (in order — each independently testable)
 
----
-
-## Session plan for engine upgrade (DO THIS IN ORDER)
-
-### Session 1 — New solver (PLAN MODE)
-Files: src/lib/solver.ts only
-Task: Rewrite using van Rijn DP. solveBag(tiles: Tile[]): SolveResult
-State: Map<string, number> keyed by `${value}|${r}|${b}|${a}|${k}`
-  where r/b/a/k are run lengths in {0,1,2,3} (3 means 3+)
-Verify: solveBag([T(3,'r'),T(4,'r'),T(5,'r')]) = {solvable:true}
-        solveBag([T(3,'r'),T(4,'r')]) = {solvable:false}
-        solveBag([T(5,'r'),T(5,'b'),T(5,'k')]) = {solvable:true}
-        solveBag([T(5,'r'),T(5,'b')]) = {solvable:false}
-
-### Session 2 — Archetype engine (PLAN MODE)
-Files: src/lib/archetypes.ts (new), src/lib/generator.ts (rewrite)
-Task: Implement dual-solution architecture + Type 1 run-to-group archetype
-Depends on: Session 1 solver passing all 4 verification tests
-
-### Session 3 — Wire + fix stuck loading (AUTO MODE)
-Files: PlayScreen.tsx, usePlayState.ts, generator.ts call sites
-Task: Replace all calls to old solve(grid,rack) with solveBag(tiles)
-      Fix stuck "Generating puzzle..." by using new generator
-      Remove solver call from drop() — solver only runs in generator
-
----
+1. solver.ts: fix empty-bag bug, implement assignment reconstruction
+2. archetypes.ts: add isTrivial() + formsValidSetAlone() + 
+   attemptNaiveReinsertion() as new exported helpers
+3. archetypes.ts: rewrite buildRunToGroup with subset-rack construction,
+   delete buildDominoChain and buildFalseExtension
+4. generator.ts: delete generateExtraRack/computeAmbiguity/
+   computeFalseAmbiguity, route ALL difficulties through
+   generateArchetype (not just extreme), tune N/L/subset-size per
+   difficulty
+5. Verification: generate 20 puzzles per difficulty, assert
+   validateGrid(board), solveBag(all).solvable, !isTrivial for every one
+6. Manual playtest: 3 puzzles per difficulty, confirm board starts
+   with zero gaps, rack can't stand alone, win requires moving a
+   board tile
 
 ## Prompt discipline
-- Max 2–3 files per prompt
+- One file per session for solver/generator/archetypes/validator work
 - Always end with: Run tsc --noEmit. Expect zero errors.
-- For solver/generator/validator/drag: explore-first mandatory
+- Explore-first mandatory for anything in this ENGINE ARCHITECTURE section
 - Never patch a bug twice without diagnosing root cause first
-- Plan mode: solver, generator, archetypes (mathematical precision needed)
-- Auto mode: UI wiring, styling, prop threading, storage
-- Normal mode: everything else
+- If a session runs long, stop it — see SESSION HEALTH above
