@@ -1,8 +1,8 @@
 import type { Tile, Grid, Difficulty } from '../types'
 import { solveBag } from './solver'
-import { isValidRun, isValidGroup } from './validator'
+import { isValidRun, isValidGroup, validateGrid } from './validator'
 
-export type ArchetypeType = 'run-to-group' | 'domino-chain' | 'false-extension'
+export type ArchetypeType = 'run-to-group'
 
 const ALL_COLORS: Tile['c'][] = ['r', 'b', 'a', 'k']
 
@@ -25,18 +25,25 @@ export interface ArchetypeResult {
   allTiles: Tile[]
 }
 
-// Type 1: N colors × L values — board has N runs each missing one tile at a
-// unique column. Rack = the N removed tiles (different colors, different values
-// → cannot form any valid set alone). Solution = L groups of N tiles.
+// Type 1: dual-block collapse. Board = N complete runs (one color each) over L
+// consecutive values, ZERO gaps — valid both as N runs (rows) and L groups
+// (columns). Rack = a STRICT SUBSET of a 4th color's tiles inside the block's
+// value range: wrong color for every run (can't extend), no groups on the board
+// yet (can't complete), so the only home is a group the player builds by
+// disassembling the runs. Every candidate is gated on validateGrid, solveBag,
+// and !isTrivial before it ships.
 export function buildRunToGroup(diff: Difficulty): ArchetypeResult | null {
   const N = 3
-  const L = diff === 'extreme' ? 5 : 4
-  const start = randomInt(1, 14 - L)
+  const L = diff === 'easy' ? 3 : diff === 'medium' ? 4 : diff === 'hard' ? 5 : 6
+  const subsetSize = diff === 'easy' ? 1 : diff === 'medium' ? randomInt(1, 2)
+    : diff === 'hard' ? randomInt(2, 3) : randomInt(3, Math.min(4, L))
 
+  const start = randomInt(1, 14 - L)
   const allColors = shuffle([...ALL_COLORS]) as Tile['c'][]
   const boardColors = allColors.slice(0, N) as Tile['c'][]
+  const rackColor = allColors[N] as Tile['c']
 
-  // Build full grid: N rows of complete runs, left-aligned
+  // Board: N complete runs, one per boardColor, ZERO gaps.
   const numCols = Math.max(10, L + 2)
   const numRows = N + 2
   const grid: Grid = Array.from({ length: numRows }, () => Array(numCols).fill(null))
@@ -44,194 +51,130 @@ export function buildRunToGroup(diff: Difficulty): ArchetypeResult | null {
     for (let col = 0; col < L; col++)
       grid[i][col] = { n: start + col, c: boardColors[i] }
 
-  // Pick one unique column per row for removal.
-  // Prefer interior cols [1..L-2] to avoid endpoint-only rack tiles forming groups;
-  // fall back to all cols if not enough interior positions (e.g. L=4, N=3).
-  const interiorCols = Array.from({ length: L - 2 }, (_, i) => i + 1)
-  const colPool = interiorCols.length >= N ? interiorCols : Array.from({ length: L }, (_, i) => i)
-  if (colPool.length < N) return null
-  const rackCols = shuffle(colPool).slice(0, N)
+  // Sanity check: board must already be fully valid before any rack
+  // is considered.
+  if (!validateGrid(grid)) return null
 
-  // Remove one tile per row at its assigned column
-  const rack: Tile[] = []
-  for (let i = 0; i < N; i++) {
-    const col = rackCols[i]
-    rack.push(grid[i][col] as Tile)
-    grid[i][col] = null
-  }
+  // Rack: a STRICT SUBSET of rackColor's tiles within the block's
+  // value range — NOT all L of them (that would be a free-standing
+  // valid run the player could place without touching the board).
+  const allRackCandidates = Array.from({ length: L }, (_, i) => ({
+    n: start + i, c: rackColor,
+  }))
+  const rack = shuffle(allRackCandidates).slice(0, subsetSize)
 
-  // Rack tiles have different colors (one per row) and different values
-  // (one per unique column), so they cannot form a run or group — safety check
-  if (isValidRun(rack) || isValidGroup(rack)) return null
+  // Gate 1: rack must not form a valid set alone (guaranteed here
+  // since subsetSize < 3 for easy/medium, but verify anyway for
+  // hard/extreme where subsetSize can reach 3-4).
+  if (formsValidSetAlone(rack)) return null
 
-  // Each board row must retain ≥3 non-null tiles
-  for (let i = 0; i < N; i++) {
-    if (grid[i].filter(t => t !== null).length < 3) return null
-  }
-
+  // Gate 2: full solvability check on board + rack combined.
   const boardTiles = grid.flat().filter((t): t is Tile => t !== null)
   const allTiles = [...boardTiles, ...rack]
   if (!solveBag(allTiles).solvable) return null
 
+  // Gate 3: non-triviality — the real check.
+  if (isTrivial(grid, rack)) return null
+
   return { grid, rack: shuffle(rack), allTiles }
 }
 
-// TYPE 2 — domino-chain
-// Board contains valid runs. A chain-starter rack tile fits run A as extension,
-// but run A would then be length 4 (max valid run), so one tile must vacate to run B,
-// which vacates a tile for run C, etc. Chain length ≥ 2.
-export function buildDominoChain(diff: Difficulty): ArchetypeResult | null {
-  const chainLen = diff === 'extreme' ? randomInt(3, 4) : 2
+// ---------------------------------------------------------------------------
+// Trivial-puzzle gate helpers (used by the generator to reject fill-in-the-
+// blank constructions). Added post-audit; see CLAUDE.md ENGINE ARCHITECTURE.
+// ---------------------------------------------------------------------------
 
-  // Build (chainLen + 1) runs sharing values at their boundaries
-  // Run i: values [start_i .. end_i], color colors[i]
-  // The "push" tile from run i becomes the "pull" starter for run i+1
-  const colors = shuffle([...ALL_COLORS])
-  if (colors.length < chainLen + 1) return null
-
-  const runs: Tile[][] = []
-  const startVal = randomInt(2, 13 - (chainLen * 2 + 2))
-
-  // Build runs so consecutive runs share a boundary value
-  // Run 0: length 3, values v..v+2
-  // Chain tile from run 0 is v+2 (high end pushed out)
-  // Run 1 starts at v+3, length 3: v+3..v+5, etc.
-  let cursor = startVal
-  for (let i = 0; i <= chainLen; i++) {
-    const len = 3
-    if (cursor + len - 1 > 13) return null
-    const run: Tile[] = Array.from({ length: len }, (_, j) => ({ n: cursor + j, c: colors[i] }))
-    runs.push(run)
-    cursor += len
-  }
-
-  // Verify all runs are individually valid and no tile collisions
-  const usedKeys = new Set<string>()
-  for (const run of runs) {
-    for (const t of run) {
-      const k = `${t.n}_${t.c}`
-      if (usedKeys.has(k)) return null
-      usedKeys.add(k)
-    }
-  }
-
-  const allTiles = runs.flat()
-  if (!solveBag(allTiles).solvable) return null
-
-  // Chain starter: a tile one step BELOW run[0]'s min value, same color
-  // Placing it extends run[0] to length 4 (still valid), but we remove
-  // run[0]'s HIGH tile into rack (simulating chain displacement)
-  const run0 = runs[0]
-  const minN = Math.min(...run0.map(t => t.n))
-  if (minN <= 1) return null
-  const chainStarter: Tile = { n: minN - 1, c: colors[0] }
-  if (usedKeys.has(`${chainStarter.n}_${chainStarter.c}`)) return null
-
-  // Rack = chain starter + displaced tiles from runs (all but run[chainLen])
-  // We remove the HIGH tile from each run 0..chainLen-1 into rack
-  const rack: Tile[] = [chainStarter]
-  const gridRows: Tile[][] = []
-  for (let i = 0; i < runs.length; i++) {
-    const run = runs[i]
-    if (i < chainLen) {
-      const maxN = Math.max(...run.map(t => t.n))
-      const displaced = run.find(t => t.n === maxN)!
-      rack.push(displaced)
-      gridRows.push(run.filter(t => t !== displaced))
-    } else {
-      gridRows.push([...run])
-    }
-  }
-
-  const gridTiles = gridRows.flat()
-
-  // Each board row must have 0 or ≥3 tiles — 1 or 2 would be an invalid partial run
-  for (const row of gridRows) {
-    if (row.length === 1 || row.length === 2) return null
-  }
-
-  // allTiles for solvability = gridTiles + rack (without duplicate chainStarter)
-  const bagForSolve = [...gridTiles, ...rack]
-  if (!solveBag(bagForSolve).solvable) return null
-
-  // Lay grid: each run's remaining tiles go into their own row, left-aligned
-  const numCols = Math.max(10, 5)
-  const numRows = runs.length + 2
-  const grid: Grid = Array.from({ length: numRows }, () => Array(numCols).fill(null))
-  for (let i = 0; i < runs.length; i++) {
-    let col = 0
-    for (const t of gridRows[i]) {
-      grid[i][col++] = t
-    }
-  }
-
-  return { grid, rack: shuffle(rack), allTiles: bagForSolve }
+function getCombinations<T>(arr: T[], size: number): T[][] {
+  if (size > arr.length) return []
+  if (size === arr.length) return [arr]
+  if (size === 1) return arr.map(x => [x])
+  const [first, ...rest] = arr
+  const withFirst = getCombinations(rest, size - 1).map(c => [first, ...c])
+  const withoutFirst = getCombinations(rest, size)
+  return [...withFirst, ...withoutFirst]
 }
 
-// TYPE 3 — false-extension
-// A rack tile looks like it extends a run (same color, adjacent value).
-// Placing it in the run is the "obvious" move but leaves another rack tile
-// unplaceable. Correct move: tile goes into a group.
-export function buildFalseExtension(diff: Difficulty): ArchetypeResult | null {
-  // Step 1: build a run of length 3-4
-  const runLen = randomInt(3, 4)
-  const runColor = ALL_COLORS[randomInt(0, 3)]
-  const runStart = randomInt(2, 13 - runLen - 1) // leave room for extension value
-  const run: Tile[] = Array.from({ length: runLen }, (_, i) => ({ n: runStart + i, c: runColor }))
-
-  // The "extension" value is one beyond the run (high end)
-  const extVal = runStart + runLen  // e.g. run is 5r6r7r, extVal=8
-  if (extVal > 13) return null
-
-  // Step 2: build a group at extVal using the 3 OTHER colors
-  const otherColors = ALL_COLORS.filter(c => c !== runColor)
-  const groupColors = shuffle(otherColors).slice(0, 3) as Tile['c'][]
-  const group: Tile[] = groupColors.map(c => ({ n: extVal, c }))
-
-  // Step 3: rack tile is extVal in runColor — looks like run extension
-  const rackTile: Tile = { n: extVal, c: runColor }
-
-  // Verify no collisions
-  const allUsed = [...run, ...group, rackTile]
-  const keys = allUsed.map(t => `${t.n}_${t.c}`)
-  if (new Set(keys).size !== keys.length) return null
-
-  // The "wrong" placement: extend the run with rackTile, group stays as-is (size 3, valid)
-  // BUT then rackTile consumed into run, group of 3 at extVal is already valid (3 colors)
-  // We need the WRONG placement to fail: so we must ensure group needs the rackTile
-  // Approach: remove one group tile into rack (group now size 2 = invalid without rackTile)
-  const displaced = group[randomInt(0, group.length - 1)]
-  const boardGroup = group.filter(t => t !== displaced)
-  // boardGroup now has 2 tiles (invalid alone) — needs rackTile to complete to 3
-
-  // Add an optional decoy tile
-  const decoyVal = runStart - 1  // one before run (another "obvious" extension on low end)
-  let decoy: Tile | null = null
-  if (decoyVal >= 1 && diff !== 'easy') {
-    const decoyKey = `${decoyVal}_${runColor}`
-    if (!keys.includes(decoyKey)) {
-      decoy = { n: decoyVal, c: runColor }
-      // decoy extends run on the LOW end — obvious but also wrong
+export function formsValidSetAlone(tiles: Tile[]): boolean {
+  if (isValidRun(tiles) || isValidGroup(tiles)) return true
+  for (let size = 3; size <= tiles.length; size++) {
+    for (const combo of getCombinations(tiles, size)) {
+      if (isValidRun(combo) || isValidGroup(combo)) return true
     }
   }
+  return false
+}
 
-  const rack: Tile[] = [rackTile, displaced]
-  if (decoy) rack.push(decoy)
+// Tries placing every rack tile at its "obvious" spot — extending a
+// run endpoint (same color, adjacent value) or completing a group
+// (same value, missing color) — with NO board tile relocation.
+// Returns the resulting grid if every rack tile found an obvious home,
+// or null if any rack tile has no obvious placement (meaning at least
+// SOME thought is required, though this alone doesn't guarantee hard).
+export function attemptNaiveReinsertion(board: Grid, rack: Tile[]): Grid | null {
+  const grid = board.map(row => [...row])
+  const rows = grid.length
+  const cols = grid[0]?.length ?? 0
 
-  const allTiles = [...run, ...boardGroup, ...rack]
-  if (!solveBag(allTiles).solvable) return null
+  for (const tile of rack) {
+    let placed = false
 
-  // The false extension is structural: boardGroup of 2 is never valid without rackTile,
-  // so solveBag on the wrong arrangement (run+rackTile, boardGroup+displaced) would
-  // still pass since solveBag operates on bags not positions. The deception is
-  // positional: the player must realize extending the run leaves the group incomplete.
+    // Try extending a run: scan each row for a contiguous run of the
+    // same color where this tile's value is exactly one below the
+    // leftmost or one above the rightmost tile, with an adjacent empty
+    // cell available.
+    for (let r = 0; r < rows && !placed; r++) {
+      const rowTiles: { t: Tile; c: number }[] = []
+      for (let c = 0; c < cols; c++) {
+        const t = grid[r][c]
+        if (t) rowTiles.push({ t, c })
+      }
+      if (rowTiles.length === 0) continue
+      const sameColor = rowTiles.filter(x => x.t.c === tile.c)
+      if (sameColor.length === 0) continue
+      const minEntry = sameColor.reduce((a, b) => a.t.n < b.t.n ? a : b)
+      const maxEntry = sameColor.reduce((a, b) => a.t.n > b.t.n ? a : b)
+      if (tile.n === minEntry.t.n - 1 && minEntry.c > 0 && !grid[r][minEntry.c - 1]) {
+        grid[r][minEntry.c - 1] = tile
+        placed = true
+      } else if (tile.n === maxEntry.t.n + 1 && maxEntry.c < cols - 1 && !grid[r][maxEntry.c + 1]) {
+        grid[r][maxEntry.c + 1] = tile
+        placed = true
+      }
+    }
+    if (placed) continue
 
-  // Lay grid
-  const numCols = Math.max(10, runLen + 3)
-  const numRows = 4
-  const grid: Grid = Array.from({ length: numRows }, () => Array(numCols).fill(null))
-  for (let i = 0; i < run.length; i++) grid[0][i] = run[i]
-  for (let i = 0; i < boardGroup.length; i++) grid[1][i] = boardGroup[i]
+    // Try completing a group: scan for a contiguous run of tiles with
+    // this tile's value in an adjacent row (vertical group forming) —
+    // for simplicity, only check horizontal groups already on the
+    // board at this tile's value with an adjacent empty cell.
+    for (let r = 0; r < rows && !placed; r++) {
+      for (let c = 0; c < cols; c++) {
+        const t = grid[r][c]
+        if (t && t.n === tile.n && t.c !== tile.c) {
+          // found a same-value tile of a different color — check for
+          // an adjacent empty cell in the same row to extend a group
+          if (c + 1 < cols && !grid[r][c + 1]) {
+            grid[r][c + 1] = tile
+            placed = true
+            break
+          }
+          if (c > 0 && !grid[r][c - 1]) {
+            grid[r][c - 1] = tile
+            placed = true
+            break
+          }
+        }
+      }
+    }
+    if (!placed) return null  // this tile has no obvious placement
+  }
 
-  return { grid, rack: shuffle(rack), allTiles }
+  return grid
+}
+
+export function isTrivial(board: Grid, rack: Tile[]): boolean {
+  if (formsValidSetAlone(rack)) return true
+  const naive = attemptNaiveReinsertion(board, rack)
+  if (naive && validateGrid(naive)) return true
+  return false
 }
