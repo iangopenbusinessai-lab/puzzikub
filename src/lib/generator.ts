@@ -5,7 +5,7 @@ export function generatePuzzle(diff: Difficulty): Puzzle | null {
   return generateArchetype('run-to-group', diff)
 }
 
-export function generateArchetype(type: ArchetypeType, diff: Difficulty): Puzzle | null {
+export function generateArchetype(_type: ArchetypeType, diff: Difficulty): Puzzle | null {
   for (let i = 0; i < 40; i++) {
     const result = buildRunToGroup(diff)
     if (!result) continue
