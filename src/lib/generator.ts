@@ -16,7 +16,7 @@ export function generateArchetype(_type: ArchetypeType, diff: Difficulty): Puzzl
       diff,
       grid: result.grid,
       rack: result.rack,
-      optimalMoves: result.rack.length,
+      optimalMoves: result.minMoves,
       generated: true,
       archetypeId: 'run-to-group',
     }
