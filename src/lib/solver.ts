@@ -5,11 +5,13 @@ export interface SolveResult {
   assignment?: Map<string, 'run' | 'group'>
 }
 
-// Verification (manual traces — see CLAUDE.md Session 1):
-// solveBag([{n:3,c:'r'},{n:4,c:'r'},{n:5,c:'r'}]) → {solvable:true}   // run of 3 reds
-// solveBag([{n:3,c:'r'},{n:4,c:'r'}])              → {solvable:false}  // run too short
-// solveBag([{n:5,c:'r'},{n:5,c:'b'},{n:5,c:'k'}])  → {solvable:true}   // group of 3
-// solveBag([{n:5,c:'r'},{n:5,c:'b'}])              → {solvable:false}  // only 2 same value
+// Tile universe this DP is defined over: values MIN_VALUE..MAX_VALUE, four
+// colors, exactly one copy of each (value, color) pair. The state space below
+// only visits values in that range, so a bag containing anything else must be
+// rejected up front rather than silently skipped — skipping a tile would let
+// an unusable tile vanish and report a bag as solvable when it is not.
+const MIN_VALUE = 1
+const MAX_VALUE = 13
 
 const COLORS = ['r', 'b', 'a', 'k'] as const
 type Color = typeof COLORS[number]
@@ -20,21 +22,31 @@ interface MemoEntry {
   group?: Color[]
 }
 
+/** Key used in the returned assignment map. Unique because m = 1 copy. */
+export const tileKey = (t: Tile): string => `${t.n}_${t.c}`
+
 export function solveBag(tiles: Tile[]): SolveResult {
   // An empty tile universe is never a valid puzzle.
   if (tiles.length === 0) return { solvable: false }
 
-  // Index tiles by value → set of colors present
+  // Index tiles by value → set of colors present.
   const bagByValue = new Map<number, Set<Color>>()
   for (const t of tiles) {
+    if (!Number.isInteger(t.n) || t.n < MIN_VALUE || t.n > MAX_VALUE) return { solvable: false }
+    if (!COLORS.includes(t.c as Color)) return { solvable: false }
     if (!bagByValue.has(t.n)) bagByValue.set(t.n, new Set())
-    bagByValue.get(t.n)!.add(t.c as Color)
+    const colors = bagByValue.get(t.n)!
+    // A duplicate (value, color) can never be consumed: a run cannot contain
+    // the same value twice, nor a group the same color twice. So any duplicate
+    // makes the whole bag unpartitionable.
+    if (colors.has(t.c as Color)) return { solvable: false }
+    colors.add(t.c as Color)
   }
 
   const memo = new Map<string, MemoEntry>()
 
   function dp(v: number, runs: RunState): boolean {
-    if (v > 13) {
+    if (v > MAX_VALUE) {
       // Valid only if no incomplete runs (length 1 or 2)
       return runs[0] !== 1 && runs[0] !== 2
           && runs[1] !== 1 && runs[1] !== 2
@@ -95,25 +107,24 @@ export function solveBag(tiles: Tile[]): SolveResult {
   function reconstructAssignment(): Map<string, 'run' | 'group'> {
     const assignment = new Map<string, 'run' | 'group'>()
     let runs: RunState = [0, 0, 0, 0]
-    for (let v = 1; v <= 13; v++) {
+    for (let v = MIN_VALUE; v <= MAX_VALUE; v++) {
       const key = `${v}|${runs[0]}|${runs[1]}|${runs[2]}|${runs[3]}`
+      // Every state along the winning path was memoized true by dp(), so a
+      // miss here means the memo and the replayed transitions disagree.
       const entry = memo.get(key)
-      if (!entry || !entry.result) break // shouldn't happen if solvable
-      const group = entry.group ?? []
-      const groupSet = new Set(group)
+      if (!entry?.result) throw new Error(`solveBag: unreachable state ${key} on winning path`)
+      const groupSet = new Set(entry.group ?? [])
       const present = bagByValue.get(v) ?? new Set<Color>()
       const newRuns: RunState = [0, 0, 0, 0]
       for (let i = 0; i < 4; i++) {
         const c = COLORS[i]
-        if (present.has(c)) {
-          const tileKey = `${v}_${c}`
-          if (groupSet.has(c)) {
-            assignment.set(tileKey, 'group')
-            newRuns[i] = 0
-          } else {
-            assignment.set(tileKey, 'run')
-            newRuns[i] = runs[i] < 3 ? runs[i] + 1 : 3
-          }
+        if (!present.has(c)) continue
+        if (groupSet.has(c)) {
+          assignment.set(tileKey({ n: v, c }), 'group')
+          newRuns[i] = 0
+        } else {
+          assignment.set(tileKey({ n: v, c }), 'run')
+          newRuns[i] = runs[i] < 3 ? runs[i] + 1 : 3
         }
       }
       runs = newRuns
@@ -121,14 +132,6 @@ export function solveBag(tiles: Tile[]): SolveResult {
     return assignment
   }
 
-  const solvable = dp(1, [0, 0, 0, 0])
-  if (!solvable) return { solvable: false }
+  if (!dp(MIN_VALUE, [0, 0, 0, 0])) return { solvable: false }
   return { solvable: true, assignment: reconstructAssignment() }
 }
-
-// Dev-only assertions (verified by tracing the DP):
-//   solveBag([]) → {solvable:false}
-//   solveBag([{n:3,c:'r'},{n:4,c:'r'},{n:5,c:'r'}]) → solvable:true,
-//     assignment: {'3_r'→'run','4_r'→'run','5_r'→'run'}
-//   solveBag([{n:5,c:'r'},{n:5,c:'b'},{n:5,c:'k'}]) → solvable:true,
-//     assignment: {'5_r'→'group','5_b'→'group','5_k'→'group'}
