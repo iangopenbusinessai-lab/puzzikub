@@ -1,5 +1,5 @@
 # Puzzikub — CLAUDE.md
-*Last updated: June 2026 — post-Fable engine audit. Keep this current after every major change.*
+*Last updated: June 2026 — post-Fable audit + open-reasoning session restructure.*
 
 ## Project overview
 Rummikub-style clear-your-rack puzzle game on a free grid.
@@ -23,6 +23,7 @@ base must always be '/puzzikub/' — never change this, never remove it.
   PowerShell terminal output (Windows environment).
 
 ## Debugging protocol — MANDATORY
+
 1. Read relevant files first. Never assume file contents.
 2. Add temporary console.log, get real output, THEN fix.
 3. Dynamic import() of .ts files does NOT work on deployed GitHub Pages.
@@ -30,10 +31,45 @@ base must always be '/puzzikub/' — never change this, never remove it.
    Diagnose first. State root cause explicitly. Then fix.
 5. SESSION HEALTH: if a single prompt takes more than ~5 minutes of
    tool-call time, STOP it. Do not let a session run 10+ minutes or
-   burn 40k+ tokens — this has caused API errors and wasted work
-   multiple times. Split into smaller single-file prompts instead.
+   burn 40k+ tokens. Split into smaller single-file prompts instead.
    One fresh session per file change is the safe default for anything
    touching solver.ts, generator.ts, archetypes.ts, or validator.ts.
+6. **ANTI-ILLUSION RULE — the most important one, added after repeated
+   false "fixed!" reports:** `tsc --noEmit` passing is NOT evidence
+   that logic is correct. It only proves the code is syntactically
+   valid TypeScript — it says nothing about whether a solver returns
+   the right answer, a generator produces a fair puzzle, or a bug is
+   actually gone. Every claim that something "works" or "is fixed"
+   MUST be backed by real executed output: run the code (via
+   `npx tsx <file>`, a dev-only test block, or the running app),
+   print real values, and report the actual printed output verbatim.
+   A narrative summary ("verified successfully", "confirmed working")
+   is not acceptable in place of pasted real output. This rule applies
+   to every session touching src/lib/, not just the ones that
+   originally motivated it.
+
+---
+
+## Model and effort selection
+
+Not every session needs the strongest available model — match the
+tool to the kind of work:
+
+- **Strong reasoning model (Opus/Fable-tier) + plan mode**: genuine
+  open-ended design work where a subtle mistake would be easy to make
+  and hard to notice — e.g. designing the solver's DP transitions from
+  scratch, designing a puzzle-construction algorithm that must satisfy
+  several invariants simultaneously. Give these sessions the RULES and
+  INVARIANTS, not a pre-written implementation — let the model design
+  its own approach and require it to prove correctness with real
+  executed test output (see Anti-illusion rule above) before reporting
+  done.
+- **Default model + auto mode**: mechanical work with no real design
+  freedom — deleting superseded functions, wiring one function to call
+  another, routing by difficulty, prop threading, styling. If a
+  "mechanical" prompt starts inventing new algorithmic logic, that's a
+  sign the task was mis-scoped as mechanical — stop and re-scope it as
+  a design session instead.
 
 ---
 
@@ -81,16 +117,30 @@ export const NUM_COLOR: Record<Tile['c'], string> = {
 
 ---
 
-## ENGINE ARCHITECTURE (src/lib/) — post-audit ground truth
+## ENGINE ARCHITECTURE (src/lib/) — ground truth definitions
 
-### The one rule that matters most
+### The rule that matters most
 **A puzzle is only valid to ship if the "obvious" move fails.** Every
-prior version of this generator regressed to fill-in-the-blank because
-nothing ever checked whether the naive placement wins. That check —
-`isTrivial()` — is now mandatory and gates every generated puzzle.
-Nothing else in this section matters if that gate is skipped.
+prior generator version regressed to fill-in-the-blank because nothing
+ever checked whether the naive placement wins. Whatever the exact
+implementation, an `isTrivial`-equivalent gate must exist and must
+actually reject puzzles where it fails — verified by generating real
+puzzles and checking real counts, not by inspecting the construction
+logic and assuming it's fine.
 
-### Solver (src/lib/solver.ts) — van Rijn DP, mostly correct, two bugs
+### Two failure modes actually observed in production (screenshots)
+Any construction approach must be checked against both of these —
+they are not hypothetical:
+
+1. **Fill-in-the-blank**: board shows sets with visible gaps, rack
+   tiles are exactly the missing pieces, each obviously belonging to
+   one slot. E.g. board "6b 7b _ 9b 10b", rack "8b".
+2. **Free-standing rack**: board is fully valid and untouched, but the
+   rack tiles form a complete valid run/group entirely on their own
+   (e.g. a full run of one color). Player places rack as a new row,
+   never touches the board. E.g. rack "4,5,6,7,8" of one color.
+
+### Solver (src/lib/solver.ts)
 ```ts
 export interface SolveResult {
   solvable: boolean
@@ -98,25 +148,28 @@ export interface SolveResult {
 }
 export function solveBag(tiles: Tile[]): SolveResult
 ```
-Algorithm is right: state = (value 1-13, run-length per color in
-{0,1,2,3+}), DP over values, group enumeration (no group / C(present,3)
-/ group-of-4), memoized. Matches van Rijn et al. arXiv:1604.07553.
+Job: given a flat bag of tiles (no grid position), can they be
+partitioned into valid runs/groups using every tile? Reference: van
+Rijn, Takes, Vis, "The Complexity of Rummikub Problems"
+(arXiv:1604.07553) — proves this is O(n) via DP for fixed k=4 colors,
+m=1 copy, n=13 values.
 
-KNOWN BUGS TO FIX:
-1. `solveBag([])` currently returns `solvable: true` (empty bag passes
-   trivially through the DP). Must return `false` — an empty tile
-   universe is never a valid puzzle.
-2. `assignment` is declared on `SolveResult` but never populated. Needs
-   a second top-down pass recording which group choice was taken at
-   each value along the winning path, building `Map<tileKey, 'run'|
-   'group'>`. Required for `optimalMoves` computation and goal-layout
-   construction — do not skip this.
+Known correctness requirements (verify with real executed test cases,
+per the Anti-illusion rule, not by reading the code):
+- `solveBag([])` must return `solvable: false` — an empty tile universe
+  is never a valid puzzle. (A naive DP base case often gets this wrong
+  by returning true when there's nothing to fail on — check explicitly.)
+- `assignment` must be populated when solvable, mapping each tile to
+  whether it landed in a run or a group — needed for `optimalMoves`
+  and any goal-layout construction downstream.
 
-Do NOT use solveBag as part of the live win condition. It checks bag
-partitionability, not grid position. That conflation caused a prior bug
-where placing tiles anywhere on the board counted as a win.
+Do NOT use solveBag as part of the live win condition — that's
+validateGrid's job (below). A bag being partitionable in theory doesn't
+mean the tiles are correctly positioned on the current grid. Conflating
+these caused a real bug where placing tiles anywhere on the board
+counted as a win.
 
-### Validator (src/lib/validator.ts) — DONE, do not modify without cause
+### Validator (src/lib/validator.ts) — correct as of last audit
 ```ts
 export function isValidRun(tiles: Tile[]): boolean
 export function isValidGroup(tiles: Tile[]): boolean
@@ -124,100 +177,50 @@ export function validateGrid(grid: Grid): boolean
 export function getInvalidCells(grid: Grid): Set<string>
 export function getNewlyValidCells(prevGrid: Grid, newGrid: Grid): Set<string>
 ```
-OR-based coverage (not XOR), shared `buildGroups` scan, explicit
-`hLen<3 && vLen<3` rejection. This file is correct as of the last audit.
-Win condition: `rack.length === 0 && validateGrid(grid)` — no bag fallback.
+OR-based coverage (not XOR — a tile at the intersection of two
+independently valid groups is fine), shared group-scanning logic, a
+tile is invalid only if it has no valid group of length ≥3 in either
+direction. Win condition: `rack.length === 0 && validateGrid(grid)` —
+no bag-based fallback, ever.
 
-### Generator (src/lib/generator.ts) — REWRITE REQUIRED
-Current `generateExtraRack` (easy/medium/hard path) produces ONLY tiles
-that extend a run endpoint or complete a group — i.e., tiles whose
-obvious placement always works. This is fill-in-the-blank by
-construction and must be deleted, not patched. `computeAmbiguity` and
-`computeFalseAmbiguity` are unreliable proxies for difficulty — delete
-both. Difficulty must be gated on verified construction parameters
-(block width L, number of blocks, decoy presence), never on superficial
-"could extend N sets" counts.
+### Generator + Archetypes (src/lib/generator.ts, src/lib/archetypes.ts)
+**The exact construction algorithm is intentionally not dictated here**
+— it's an open design problem, solved by whichever session designs it,
+and re-verified independently by the harness (below) rather than
+trusted from the design session's own report. What IS fixed, as
+non-negotiable invariants any construction must satisfy:
 
-### Archetypes (src/lib/archetypes.ts) — REWRITE REQUIRED
-`buildRunToGroup`, `buildDominoChain`, `buildFalseExtension` all
-currently punch holes in complete runs (remove an interior tile,
-leaving contiguous fragments of length 1-2 in that row). This produces
-a STARTING BOARD THAT FAILS validateGrid — the player sees red-highlighted
-invalid cells before making a single move. All three must be rewritten
-or deleted per the plan below.
+1. `validateGrid(startBoard) === true` before any rack tile is placed.
+2. `solveBag([...boardTiles, ...rack]).solvable === true`.
+3. The rack (or any subset of it, size ≥3) does not form a valid run
+   or group on its own.
+4. Placing every rack tile at its single most "obvious" spot, with no
+   board tile moved, does NOT produce a valid grid.
 
-### THE CORRECT CONSTRUCTION — dual block + subset rack
+A known-good building block (available as a tool, not mandatory): an
+N×L grid of tiles (N colors, L consecutive values, N∈{3,4}, L≥3)
+decomposes validly both as N runs (rows) and as L groups (columns) —
+same tiles, two structures. This is Latin-rectangle row/column duality
+applied to Rummikub. Whoever designs the construction may use this,
+extend it, combine multiple blocks, or use a different approach
+entirely, provided the four invariants above hold and are verified
+with real generated output.
 
-Core insight (verified sound — matches Latin rectangle row/column
-duality): an N×L grid of tiles (N colors, L consecutive values, N∈{3,4},
-L≥3) decomposes validly BOTH as N runs (rows) AND as L groups (columns).
-Same tiles, two structures.
+`optimalMoves` should be computed directly from how the puzzle was
+constructed (the builder knows how many tiles must move), not
+recovered later via search.
 
-Correct puzzle construction:
-1. Board = ONE complete dual block laid out as N runs (typically N=3),
-   ZERO gaps. `validateGrid(board)` must pass before rack is even
-   generated.
-2. Rack = a STRICT SUBSET of the 4th color's tiles at value positions
-   inside the block's range (NOT the full L tiles of that color — a
-   full run-worth is a free-standing valid set the player can place
-   without touching the board, which is its own trivial failure mode
-   seen directly in user screenshots). Subset size must be small enough
-   that `formsValidSetAlone(rack)` is false.
-3. These rack tiles are the wrong color for every board run (can't
-   extend anything) and there are no groups yet on the board (can't
-   complete anything) — their only possible home is inside a group the
-   player creates by DISASSEMBLING the runs. This is what makes naive
-   reinsertion structurally impossible, verified by Check B below, not
-   assumed.
-4. Gate every candidate through:
-   - `validateGrid(board) === true`
-   - `solveBag([...boardTiles, ...rack]).solvable === true`
-   - `!isTrivial(board, rack)`
-   Discard and retry (fresh random N, L, start value, color choice,
-   subset) if any gate fails. Never hand-trust a construction — always
-   verify with code.
-
-### isTrivial() — the mandatory gate (does not exist yet, must be built)
-```ts
-function isTrivial(board: Grid, rack: Tile[]): boolean {
-  // Check A: does rack, or any subset of it (size >= 3), form a valid
-  // run or group on its own? If so the player just places it as a new
-  // row/column and never touches the board. Reject.
-  if (formsValidSetAlone(rack)) return true
-
-  // Check B: does placing every rack tile at its "obvious" spot (run
-  // endpoint extension or group completion) — with NO board tile
-  // relocation — immediately produce a valid grid? If so this is
-  // fill-in-the-blank. Reject.
-  const naive = attemptNaiveReinsertion(board, rack)
-  if (naive && validateGrid(naive)) return true
-
-  return false
-}
-```
-A puzzle only ships if reaching the win state requires moving at least
-one tile that started on the board. This replaces all prior ambiguity
-scoring.
-
-### Archetype status
-- Archetype 1 (dual-block collapse): the ONLY archetype currently
-  worth keeping, and it needs the rewrite above (subset rack, not full
-  column removal).
-- Domino-chain, false-extension: DELETE current implementations (both
-  produce invalid starting boards via interior-tile removal). May be
-  reintroduced later as a solver-verified decoy LAYERED ON TOP of a
-  working dual-block puzzle, not as standalone builders.
-
-### Difficulty scaling (construction parameters, not scores)
-- easy: N=3, L=3, rack subset size 1
-- medium: N=3, L=4, rack subset size 1-2
-- hard: N=3, L=5, rack subset size 2-3
-- extreme: N=3, L=6 or two compound dual blocks, rack subset size 3+,
-  optional verified decoy
-
-### optimalMoves
-Computed from construction (you built the disruption, you know the
-count) — never from a post-hoc search.
+### Verification harness (src/lib/verifyEngine.ts)
+A standalone script, run via `npx tsx src/lib/verifyEngine.ts` (no
+build step, no test framework dependency). Independently re-checks the
+four invariants above against real generated puzzles, per difficulty,
+and prints real pass/fail counts. This is not a one-time step — re-run
+it after any change to solver.ts, generator.ts, or archetypes.ts, and
+treat its printed terminal output (pasted in full, not summarized) as
+the actual source of truth for whether the engine works. A session
+that changes the generator and reports success without this file
+being re-run and its raw output reviewed has not actually demonstrated
+anything, per the Anti-illusion rule.
 
 ---
 
@@ -252,36 +255,31 @@ index.css. No changes needed to these systems.
 
 ## File responsibilities
 ```
-src/lib/solver.ts       solveBag — fix empty-bag bug + assignment reconstruction
-src/lib/validator.ts    DONE — do not modify
-src/lib/archetypes.ts   REWRITE — dual-block + subset rack, delete other two
-src/lib/generator.ts    REWRITE — delete generateExtraRack + ambiguity scoring,
-                         add isTrivial gate, wire new archetype construction
-                         for all difficulties (not just extreme)
+src/lib/solver.ts       solveBag — bag-level partition oracle, see above
+src/lib/validator.ts    DONE — do not modify without cause
+src/lib/archetypes.ts   puzzle construction — open design, see above
+src/lib/generator.ts    routes generatePuzzle(diff) to archetype builder(s)
+src/lib/verifyEngine.ts standalone harness — re-run after any engine change
 ```
 
 ---
 
-## Rewrite session plan (in order — each independently testable)
-
-1. solver.ts: fix empty-bag bug, implement assignment reconstruction
-2. archetypes.ts: add isTrivial() + formsValidSetAlone() + 
-   attemptNaiveReinsertion() as new exported helpers
-3. archetypes.ts: rewrite buildRunToGroup with subset-rack construction,
-   delete buildDominoChain and buildFalseExtension
-4. generator.ts: delete generateExtraRack/computeAmbiguity/
-   computeFalseAmbiguity, route ALL difficulties through
-   generateArchetype (not just extreme), tune N/L/subset-size per
-   difficulty
-5. Verification: generate 20 puzzles per difficulty, assert
-   validateGrid(board), solveBag(all).solvable, !isTrivial for every one
-6. Manual playtest: 3 puzzles per difficulty, confirm board starts
-   with zero gaps, rack can't stand alone, win requires moving a
-   board tile
+## Current status (update this after each session)
+As of this writing: three sessions are queued but NOT yet executed —
+(1) solver.ts open-reasoning fix for the empty-bag case and assignment
+reconstruction, (2) archetypes.ts open-reasoning construction redesign
+against the four invariants and two failure modes above, (3) mechanical
+wiring of generator.ts to route all difficulties through whatever
+session 2 produces. The verification harness has not yet been built or
+run against the current (known-broken) engine. Do not assume the
+engine currently satisfies the four invariants — assume it does not,
+until the harness says otherwise with real printed output.
 
 ## Prompt discipline
 - One file per session for solver/generator/archetypes/validator work
-- Always end with: Run tsc --noEmit. Expect zero errors.
-- Explore-first mandatory for anything in this ENGINE ARCHITECTURE section
+- Always end with: Run tsc --noEmit AND real executed test output.
+  Neither alone is sufficient (see Anti-illusion rule).
+- Explore-first / open-reasoning mandatory for genuine design work in
+  this ENGINE ARCHITECTURE section (see Model and effort selection)
 - Never patch a bug twice without diagnosing root cause first
 - If a session runs long, stop it — see SESSION HEALTH above
