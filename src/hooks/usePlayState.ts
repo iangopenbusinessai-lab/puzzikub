@@ -42,6 +42,18 @@ function reducer(state: State, action: Action): State {
 
     case 'DROP': {
       const { src: dragSrc, target } = action
+
+      // Grid tile dropped back onto the exact cell it was picked up from:
+      // nothing changed, so this is a no-op (same as rack→rack below).
+      if (
+        dragSrc.from === 'grid' &&
+        target.to === 'grid' &&
+        dragSrc.row === target.row &&
+        dragSrc.col === target.col
+      ) {
+        return state
+      }
+
       const grid = deepCopyGrid(state.grid)
       const rack = [...state.rack]
       const snapshot = { grid: deepCopyGrid(state.grid), rack: [...state.rack] }
