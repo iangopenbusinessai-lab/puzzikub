@@ -173,9 +173,6 @@ export function PlayScreen({ activeScreen, onNav, soundEnabled, onShowSettings, 
           <>
             <div style={{ display: 'flex', alignItems: 'center', fontSize: 12, color: 'var(--text-secondary)', margin: '4px 0 12px' }}>
               moves: {moves}&nbsp;&nbsp;par: {currentPuzzle?.optimalMoves ?? '—'}&nbsp;&nbsp;rack: {rack.length}
-              {currentPuzzle?.archetypeId && (diff === 'hard' || diff === 'extreme') && (
-                <ArchetypeBadge id={currentPuzzle.archetypeId} />
-              )}
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'center', margin: '0 0 16px' }}>
@@ -254,30 +251,6 @@ export function PlayScreen({ activeScreen, onNav, soundEnabled, onShowSettings, 
   )
 }
 
-const ARCHETYPE_BADGE: Record<string, { label: string; bg: string; color: string }> = {
-  'run-to-group':    { label: '↔ collapse',  bg: '#EEEDFE', color: '#3C3489' },
-  'domino-chain':    { label: '⛓ chain',     bg: '#E1F5EE', color: '#085041' },
-  'false-extension': { label: '⚠ decoy',     bg: '#FAEEDA', color: '#633806' },
-}
-
-function ArchetypeBadge({ id }: { id: string }) {
-  const badge = ARCHETYPE_BADGE[id]
-  if (!badge) return null
-  return (
-    <span style={{
-      fontSize: 11,
-      marginLeft: 8,
-      padding: '2px 7px',
-      borderRadius: 20,
-      background: badge.bg,
-      color: badge.color,
-      fontWeight: 500,
-      lineHeight: 1.4,
-    }}>
-      {badge.label}
-    </span>
-  )
-}
 
 function HoverBtn({ onClick, disabled = false, children }: {
   onClick: () => void

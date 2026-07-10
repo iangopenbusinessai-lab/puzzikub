@@ -2,8 +2,8 @@ import type { Tile, Grid, Difficulty } from '../types'
 import { solveBag } from './solver'
 import { isValidRun, isValidGroup, validateGrid } from './validator'
 
-// 'run-to-group' is the legacy id still passed by generator.ts.
-export type ArchetypeType = 'groups-to-runs' | 'run-to-group'
+/** The two directions of the same Latin-rectangle duality. */
+export type ArchetypeType = 'groups-to-runs' | 'runs-to-groups'
 
 const ALL_COLORS: Tile['c'][] = ['r', 'b', 'a', 'k']
 
@@ -369,46 +369,6 @@ function permutations<T>(xs: T[]): T[][] {
   return out
 }
 
-/**
- * Moves needed to drive `boardCells` onto `boardGoals` and empty a rack of
- * `rackCount`. Cells are r * cols + c. `boardGoals` must be injective.
- */
-export function layoutCost(boardCells: number[], boardGoals: number[], rackCount: number): number {
-  const n = boardCells.length
-  const occupant = new Map<number, number>()
-  for (let i = 0; i < n; i++) occupant.set(boardCells[i], i)
-
-  const misplaced: boolean[] = new Array(n)
-  let fixed = 0
-  for (let i = 0; i < n; i++) {
-    misplaced[i] = boardCells[i] !== boardGoals[i]
-    if (!misplaced[i]) fixed++
-  }
-
-  // 0 = unseen, 1 = on the current walk, 2 = retired.
-  const mark = new Uint8Array(n)
-  let cycles = 0
-
-  for (let i = 0; i < n; i++) {
-    if (!misplaced[i] || mark[i] !== 0) continue
-    const walk: number[] = []
-    let cur = i
-    while (cur !== -1 && misplaced[cur] && mark[cur] === 0) {
-      mark[cur] = 1
-      walk.push(cur)
-      const next = occupant.get(boardGoals[cur])
-      cur = next === undefined ? -1 : next
-    }
-    // Stopped on a node of this very walk ⇒ we closed a cycle. Stopping on a
-    // retired node is impossible (in-degree ≤ 1), and stopping on a fixed tile
-    // is impossible (it would share that tile's goal cell).
-    if (cur !== -1 && mark[cur] === 1) cycles++
-    for (const w of walk) mark[w] = 2
-  }
-
-  return n + rackCount - fixed - cycles
-}
-
 export interface GoalPlan {
   /** Reference-solution length: exactly the moves `goal` costs to reach. */
   moves: number
@@ -417,12 +377,22 @@ export interface GoalPlan {
 }
 
 /**
- * Cheapest "one colour's run per row" layout for these tiles, and its cost.
- * Returns null when the tiles cannot form that layout at all (a colour whose
- * values are not contiguous, or fewer than 3 of a colour, or no room on the
- * grid) — the same condition verifyEngine's invariant (e) checks.
+ * The cost core, shared by every goal shape. Write each board tile's goal cell
+ * into `goals`, call `cost()`, repeat — nothing is reallocated per candidate,
+ * which is what keeps a few hundred thousand candidate layouts affordable.
+ *
+ * `goals` must stay injective and in-bounds; the enumerators guarantee both.
  */
-export function planColorRunGoal(grid: Grid, rack: Tile[]): GoalPlan | null {
+interface CostCtx {
+  rows: number
+  cols: number
+  board: { tile: Tile; cell: number }[]
+  all: Tile[]
+  goals: Int32Array
+  cost(): number
+}
+
+function makeCostCtx(grid: Grid, rack: Tile[]): CostCtx | null {
   const rows = grid.length
   const cols = grid[0]?.length ?? 0
   if (rows === 0 || cols === 0) return null
@@ -436,6 +406,72 @@ export function planColorRunGoal(grid: Grid, rack: Tile[]): GoalPlan | null {
 
   const all = [...board.map(b => b.tile), ...rack]
   if (all.length === 0) return null
+
+  const n = board.length
+  const rackCount = rack.length
+
+  // cell → index of the board tile sitting on it, or -1.
+  const occupant = new Int32Array(rows * cols).fill(-1)
+  for (let i = 0; i < n; i++) occupant[board[i].cell] = i
+
+  const goals = new Int32Array(n)
+  const mark = new Uint8Array(n) // 0 unseen, 1 on the current walk, 2 retired, 3 fixed
+  const walk = new Int32Array(n)
+
+  return {
+    rows, cols, board, all, goals,
+    cost() {
+      mark.fill(0)
+      let fixed = 0
+      for (let i = 0; i < n; i++) {
+        if (board[i].cell === goals[i]) { fixed++; mark[i] = 3 }
+      }
+
+      let cycles = 0
+      for (let i = 0; i < n; i++) {
+        if (mark[i] !== 0) continue
+        let len = 0
+        let cur = i
+        while (cur !== -1 && mark[cur] === 0) {
+          mark[cur] = 1
+          walk[len++] = cur
+          cur = occupant[goals[cur]]
+        }
+        // Stopped on a node of this very walk ⇒ we closed a cycle. Stopping on
+        // a retired node is impossible (in-degree ≤ 1), and stopping on a fixed
+        // tile is impossible (it would share that tile's goal cell).
+        if (cur !== -1 && mark[cur] === 1) cycles++
+        for (let w = 0; w < len; w++) mark[walk[w]] = 2
+      }
+
+      return n + rackCount - fixed - cycles
+    },
+  }
+}
+
+function materialize(ctx: CostCtx, moves: number, cellOf: (t: Tile) => number): GoalPlan {
+  const goal = new Map<string, [number, number]>()
+  for (const t of ctx.all) {
+    const cell = cellOf(t)
+    goal.set(tileKey(t), [Math.floor(cell / ctx.cols), cell % ctx.cols])
+  }
+  return { moves, goal }
+}
+
+/**
+ * Cheapest "one colour's run per row" layout — the goal of `groups-to-runs`.
+ * A window is a colour-row needing L consecutive values, so the free parameters
+ * are which colour owns which row and where the block sits.
+ *
+ * Returns null when the tiles cannot form that shape at all (a colour whose
+ * values are not contiguous, fewer than 3 of a colour, or no room on the grid).
+ * That null is exactly invariant (e) failing, and it is why the mirrored
+ * archetype's tiles cannot be scored with this function by accident.
+ */
+export function planColorRunGoal(grid: Grid, rack: Tile[]): GoalPlan | null {
+  const ctx = makeCostCtx(grid, rack)
+  if (!ctx) return null
+  const { rows, cols, board, all, goals } = ctx
 
   const vmin = Math.min(...all.map(t => t.n))
   const vmax = Math.max(...all.map(t => t.n))
@@ -452,29 +488,109 @@ export function planColorRunGoal(grid: Grid, rack: Tile[]): GoalPlan | null {
   const colors = [...byColor.keys()]
   if (colors.length > rows || width >= cols) return null
 
-  const boardCells = board.map(b => b.cell)
+  const n = board.length
   let best = Infinity
-  let bestGoal: Map<string, [number, number]> | null = null
+  let bestCellOf: ((t: Tile) => number) | null = null
 
   for (const perm of permutations(colors)) {
     for (let rowStart = 0; rowStart + colors.length <= rows; rowStart++) {
       const rowOf = new Map<Tile['c'], number>()
       perm.forEach((c, i) => rowOf.set(c, rowStart + i))
+      const boardRow = board.map(b => rowOf.get(b.tile.c)!)
       for (let colStart = 0; colStart + width < cols; colStart++) {
-        const cellOf = (t: Tile) => rowOf.get(t.c)! * cols + colStart + (t.n - vmin)
-        const cost = layoutCost(boardCells, board.map(b => cellOf(b.tile)), rack.length)
+        for (let i = 0; i < n; i++)
+          goals[i] = boardRow[i] * cols + colStart + (board[i].tile.n - vmin)
+        const cost = ctx.cost()
         if (cost < best) {
           best = cost
-          bestGoal = new Map(all.map(t => {
-            const cell = cellOf(t)
-            return [tileKey(t), [Math.floor(cell / cols), cell % cols] as [number, number]]
-          }))
+          const rowSnap = new Map(rowOf)
+          const cs = colStart
+          bestCellOf = (t: Tile) => rowSnap.get(t.c)! * cols + cs + (t.n - vmin)
         }
       }
     }
   }
 
-  return bestGoal ? { moves: best, goal: bestGoal } : null
+  return bestCellOf ? materialize(ctx, best, bestCellOf) : null
+}
+
+/**
+ * Cheapest "one value's group per row" layout — the goal of `runs-to-groups`,
+ * and the exact mirror of the above. A window is now a value-row needing 3 or 4
+ * distinct colours, so the free parameters are which value owns which row, the
+ * left-to-right colour order inside the groups, and where the block sits.
+ *
+ * Ranking each row's colours *within the colours that value actually has* keeps
+ * every group contiguous automatically, so a 3-colour row never leaves a hole
+ * where the missing colour's column would have been.
+ *
+ * Returns null unless every value has 3 or 4 distinct colours — which is
+ * invariant (e) for this shape, and is why `groups-to-runs` tiles (whose
+ * boundary values carry only 1-2 colours) can never be scored here by accident.
+ */
+export function planValueGroupGoal(grid: Grid, rack: Tile[]): GoalPlan | null {
+  const ctx = makeCostCtx(grid, rack)
+  if (!ctx) return null
+  const { rows, cols, board, all, goals } = ctx
+
+  const byValue = new Map<number, Tile['c'][]>()
+  for (const t of all) byValue.set(t.n, [...(byValue.get(t.n) ?? []), t.c])
+  for (const cs of byValue.values()) {
+    if (cs.length < 3 || cs.length > 4) return null
+    if (new Set(cs).size !== cs.length) return null
+  }
+
+  const values = [...byValue.keys()].sort((a, b) => a - b)
+  const vmin = values[0]
+  const vmax = values[values.length - 1]
+  const maxWidth = Math.max(...[...byValue.values()].map(cs => cs.length))
+  if (values.length > rows || maxWidth > cols) return null
+
+  const colors = [...new Set(all.map(t => t.c))]
+  const valuePerms = permutations(values)
+  const n = board.length
+  const vOff = board.map(b => b.tile.n - vmin)
+  const rowIdx = new Int32Array(vmax - vmin + 1)
+  const boardRank = new Int32Array(n)
+  const base = new Int32Array(n)
+
+  let best = Infinity
+  let bestCellOf: ((t: Tile) => number) | null = null
+
+  for (const pi of permutations(colors)) {
+    const piIndex = new Map(pi.map((c, i) => [c, i]))
+    const rank = new Map<string, number>()
+    for (const [v, cs] of byValue) {
+      const ordered = [...cs].sort((a, b) => piIndex.get(a)! - piIndex.get(b)!)
+      ordered.forEach((c, i) => rank.set(tileKey({ n: v, c }), i))
+    }
+    for (let i = 0; i < n; i++) boardRank[i] = rank.get(tileKey(board[i].tile))!
+
+    for (const vp of valuePerms) {
+      for (let i = 0; i < vp.length; i++) rowIdx[vp[i] - vmin] = i
+      // Everything that does not depend on where the block sits, hoisted out of
+      // the two innermost loops: goal = base + rowStart * cols + colStart.
+      for (let i = 0; i < n; i++) base[i] = rowIdx[vOff[i]] * cols + boardRank[i]
+
+      for (let rowStart = 0; rowStart + values.length <= rows; rowStart++) {
+        const rowShift = rowStart * cols
+        for (let colStart = 0; colStart + maxWidth <= cols; colStart++) {
+          const shift = rowShift + colStart
+          for (let i = 0; i < n; i++) goals[i] = base[i] + shift
+          const cost = ctx.cost()
+          if (cost < best) {
+            best = cost
+            const rowOf = new Map(vp.map((v, i) => [v, rowStart + i]))
+            const rankSnap = new Map(rank)
+            const cs = colStart
+            bestCellOf = (t: Tile) => rowOf.get(t.n)! * cols + cs + rankSnap.get(tileKey(t))!
+          }
+        }
+      }
+    }
+  }
+
+  return bestCellOf ? materialize(ctx, best, bestCellOf) : null
 }
 
 interface Params { L: number; rackSize: number }
@@ -565,5 +681,146 @@ export function buildGroupsToRuns(diff: Difficulty): ArchetypeResult | null {
   return { grid, rack: shuffle(rack), allTiles, minMoves: plan.moves }
 }
 
-/** Legacy alias — generator.ts still calls this name. */
-export const buildRunToGroup = buildGroupsToRuns
+// ---------------------------------------------------------------------------
+// Construction: "runs to groups" — the mirror image of the above.
+//
+// The board shows N=3 colours over L consecutive values, laid out as its 3 RUNS:
+// one colour per row, values ascending. The hidden goal is the same tiles as L
+// GROUPS: one value per row, distinct colours side by side. Same duality, walked
+// the other way, so recognising one direction does not hand you the other.
+//
+// WHY N IS FORCED TO 3. The goal is groups, and isValidGroup caps a group at 4
+// tiles of distinct colours. Every value on the board already carries N colours,
+// so the rack can only add a colour a value does not have yet. With N=4 there is
+// no such colour, and boundary-value rack tiles (at s-1 or s+L) could only ever
+// group with each other — which invariant (c) forbids. So the board takes 3 of
+// the 4 colours, and the rack is made entirely of the 4th.
+//
+// WHY THE RACK IS HOMELESS — the mirror of the group-board argument:
+//
+//   1. ONE MAXIMAL SEGMENT PER ROW. Each board row is one gapless run and
+//      nothing else, so no rack tile can bridge two flanking board tiles.
+//
+//   2. EVERY STRIP IS A RUN IN A COLOUR THE RACK DOES NOT HAVE. Append a rack
+//      tile to either end of any board row and that row's segment holds two
+//      colours — so it is not a run — while its values stay distinct — so it is
+//      not a group. Whatever the tile is, the row breaks. Note this is why the
+//      rack's colour must be off-board: a rack tile at s-1 or s+L in a board
+//      colour would simply extend that run, which is failure mode 1 exactly.
+//
+// So a rack tile can only be covered by an all-rack segment. The rack is one
+// colour, so such a segment is never a group, and it is a run only if it holds
+// 3 consecutive values — which the value picker below refuses to produce. Hence
+// (d) follows from (c) here too, and as before the implication is asserted, not
+// assumed: the exhaustive existsNoRelocationWin gate still runs on every board.
+//
+// The only way out is to break the 3 runs apart and rebuild the same tiles as L
+// groups, one value per row, which the rack's 4th colour then completes.
+// ---------------------------------------------------------------------------
+
+/**
+ * `k` distinct offsets in [0, L) with no 3 consecutive — so the rack, which is
+ * all one colour, can never be a run on its own. (It can never be a group
+ * either: a group needs distinct colours.)
+ */
+function pickRackOffsets(L: number, k: number): number[] | null {
+  const hasThreeConsecutive = (xs: number[]) => {
+    for (let i = 0; i + 2 < xs.length; i++)
+      if (xs[i + 1] === xs[i] + 1 && xs[i + 2] === xs[i] + 2) return true
+    return false
+  }
+  for (let attempt = 0; attempt < 200; attempt++) {
+    const picked = shuffle(Array.from({ length: L }, (_, i) => i)).slice(0, k).sort((a, b) => a - b)
+    if (!hasThreeConsecutive(picked)) return picked
+  }
+  return null
+}
+
+/**
+ * L/rackSize-per-difficulty for `runs-to-groups`. Deliberately separate from
+ * `paramsFor` (which still governs `groups-to-runs` only): par for this
+ * direction is a deterministic function of (L, rackSize) alone — measured as
+ * exactly `3L + rackSize - 6`, since every 3×L block's transpose has identical
+ * cycle structure regardless of which colours/values are drawn — so it needs
+ * its own table to land in the same par range as the other direction at each
+ * difficulty label.
+ *
+ * PERFORMANCE WALL, measured directly (buildRunsToGroupsAt, real wall-clock):
+ *   L=5    10.7ms   L=6    63.7ms   L=7   503.3ms   L=8  5335.0ms
+ * planValueGroupGoal enumerates L! value-permutations, so cost is O(L!) and
+ * L=8 already costs 5+ seconds per build. rackSize barely moves the needle
+ * (it only adds O(1) work per cost() call) — L is what must stay small.
+ *
+ * Consequence: extreme is deliberately allowed to cost ~5s per generation
+ * (L=8) to reach its target par; every other tier stays under ~0.5s (L<=7).
+ * This trade was an explicit, discussed choice — see CLAUDE.md session notes
+ * — not an oversight. rackSize is chosen at each L to land par as close to
+ * (and, per that choice, slightly above rather than below) the measured
+ * groups-to-runs average at the same label; ceiling is bounded by
+ * pickRackOffsets' no-3-consecutive constraint, roughly ceil(2L/3).
+ */
+function runsToGroupsParamsFor(diff: Difficulty): Params {
+  switch (diff) {
+    case 'easy': return { L: 5, rackSize: 2 }   // par 11  (target avg 10.6, range 10-11)
+    case 'medium': return { L: 6, rackSize: 4 } // par 16  (target avg 13.4, range 12-15)
+    case 'hard': return { L: 7, rackSize: 5 }   // par 20  (target avg 20.0, range 18-21)
+    case 'extreme': return { L: 8, rackSize: 6 } // par 24  (target avg 23.9, range 21-25) — ~5s/build
+  }
+}
+
+export function buildRunsToGroups(diff: Difficulty): ArchetypeResult | null {
+  const { L, rackSize } = runsToGroupsParamsFor(diff)
+  return buildRunsToGroupsAt(L, rackSize)
+}
+
+/** L-parameterized core, exported for tuning/verification — see buildRunsToGroups. */
+export function buildRunsToGroupsAt(L: number, rackSize: number): ArchetypeResult | null {
+  if (rackSize > L) return null
+
+  // Board values s..s+L-1 all sit inside 1..13; no boundary values are needed.
+  const s = randomInt(1, 14 - L)
+
+  // Board needs 3 rows; the goal layout needs L (one group per value).
+  const rows = Math.max(3, L) + 2
+  // Board runs are L wide; goal groups are at most 4 wide. Both start at
+  // colStart, so max(L, 4) + 2 clears either with a margin on each side.
+  const cols = Math.max(L, 4) + 2
+  const rowStart = 1
+  const colStart = 1
+
+  // Three colours go on the board, one run each; the fourth is the whole rack.
+  const picked = shuffle(ALL_COLORS)
+  const boardColors = picked.slice(0, 3)
+  const rackColor = picked[3]
+
+  const grid: Grid = Array.from({ length: rows }, () => Array(cols).fill(null))
+  boardColors.forEach((c, i) => {
+    for (let k = 0; k < L; k++) grid[rowStart + i][colStart + k] = { n: s + k, c }
+  })
+
+  // (a) the board the player is shown is already fully valid.
+  if (!validateGrid(grid)) return null
+
+  // Rack: the off-board colour, at values inside the block, never 3 in a row.
+  const offsets = pickRackOffsets(L, rackSize)
+  if (!offsets) return null
+  const rack: Tile[] = offsets.map(o => ({ n: s + o, c: rackColor }))
+
+  // (c) the rack is not already a puzzle on its own.
+  if (formsValidSetAlone(rack)) return null
+
+  // (b) board + rack really is partitionable.
+  const boardTiles = grid.flat().filter((t): t is Tile => t !== null)
+  const allTiles = [...boardTiles, ...rack]
+  if (!solveBag(allTiles).solvable) return null
+
+  // (d) the obvious move must fail — exhaustively, not heuristically.
+  const search = existsNoRelocationWin(grid, rack)
+  if (search.win || search.exhausted) return null
+
+  // Reference solution: the same tiles rebuilt as L groups, one value per row.
+  const plan = planValueGroupGoal(grid, rack)
+  if (!plan) return null
+
+  return { grid, rack: shuffle(rack), allTiles, minMoves: plan.moves }
+}

@@ -290,11 +290,61 @@ Verified against real move-BFS on 265 instances (0 mismatches, incl.
 difficulty (simulated count == optimalMoves, every run ends in a
 validateGrid win).
 
-Known scope limit: this is exact for the "one colour's run per row"
-goal family, i.e. it remains an *upper bound* on the true optimum over
-every conceivable winning layout. Full-win BFS is infeasible at real
-tile counts (14-28), so global optimality is not proven and should not
-be claimed.
+Known scope limit: this is exact for the goal family the builder aims
+at, i.e. it remains an *upper bound* on the true optimum over every
+conceivable winning layout. Full-win BFS is infeasible at real tile
+counts (11-28), so global optimality is not proven and must not be
+claimed. Player-facing UI calls it "par", never "optimal".
+
+**Two archetypes, both shipping, chosen ~50/50 per puzzle.**
+- `groups-to-runs`: board = L horizontal groups (4 colours × one value
+  per row); goal = 4 runs. Rack = boundary values s-1 / s+L.
+- `runs-to-groups`: the mirror. Board = 3 horizontal runs (one colour
+  per row, L consecutive values); goal = L groups. N is forced to 3
+  because isValidGroup caps at 4, so the rack must be the whole 4th
+  colour, at values *inside* the block and never 3 consecutive.
+
+`planColorRunGoal` / `planValueGroupGoal` share one cost core
+(`makeCostCtx`); each returns null on the other's tiles, which is what
+makes invariant (e) a real check rather than a shape assumption.
+`existsNoRelocationWin`, `formsValidSetAlone` and `obviousSpots` are
+orientation-agnostic (they test run OR group) and are reused unchanged.
+
+**RESOLVED (session after the above note):** `runs-to-groups` now has
+its own `runsToGroupsParamsFor` table in archetypes.ts, separate from
+`paramsFor` (which still governs `groups-to-runs` only). Par for this
+direction is exactly `3L + rackSize - 6` (measured, not assumed) — a
+deterministic function of (L, rackSize), still zero variance within a
+difficulty, but now tuned to land in the same range as `groups-to-runs`:
+
+| diff | L | rackSize | par | groups-to-runs avg (measured) |
+|---|---|---|---|---|
+| easy | 5 | 2 | 11 | 10.6 |
+| medium | 6 | 4 | 16 | 13.4 |
+| hard | 7 | 5 | 20 | 20.0 |
+| extreme | 8 | 6 | 24 | 23.9 |
+
+**PERFORMANCE WALL, measured directly** (`buildRunsToGroupsAt`, real
+wall-clock): `planValueGroupGoal` enumerates `L!` value-permutations,
+so cost is `O(L!)` — L=5 10.7ms, L=6 63.7ms, L=7 503ms, **L=8 5335ms**.
+rackSize barely affects timing (only O(1) work per cost() call); L is
+what must stay small. Extreme's L=8 is a deliberate, discussed
+exception: it costs ~5s per generation to hit its par target, vs
+<1s for every other tier/direction combination. This was an explicit
+tradeoff decision (asked via AskUserQuestion, user chose to accept the
+~5s cost over tying hard/extreme together or capping the table below
+target). If this ever needs to get fast again, the fix is redesigning
+`planValueGroupGoal`'s search (currently exhaustive over L!), not
+retuning the table further — L=7 is close to the practical ceiling
+under the current algorithm.
+
+Verified post-change: `verifyEngine.ts` invariants (a)-(e) all 25/25
+for both archetypes at every difficulty; move-sequence simulation
+exact-matches par on all 40 samples; grid dims stay modest (max 10×10
+at extreme/runs-to-groups, well under any UI concern); 160 real
+`generatePuzzle()` calls split ~49/51 between directions with real
+par overlap at every tier (e.g. hard: groups-to-runs avg 20.6 vs
+runs-to-groups avg 20.0; extreme: 25.1 vs 24.0).
 
 ## Prompt discipline
 - One file per session for solver/generator/archetypes/validator work

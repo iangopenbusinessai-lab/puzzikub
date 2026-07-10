@@ -3,11 +3,14 @@ import { solveBag } from './solver'
 import { validateGrid, getInvalidCells } from './validator'
 import {
   buildGroupsToRuns,
+  buildRunsToGroups,
   formsValidSetAlone,
   existsNoRelocationWin,
   obviousPlacementWins,
   isTrivial,
   planColorRunGoal,
+  planValueGroupGoal,
+  type GoalPlan,
 } from './archetypes'
 import { generatePuzzle } from './generator'
 
@@ -198,112 +201,117 @@ const difficulties: Difficulty[] = ['easy', 'medium', 'hard', 'extreme']
 const WANTED = 25
 const MAX_ATTEMPTS = 400
 let anyInvariantFailed = false
-const samples: Partial<Record<Difficulty, { grid: Grid; rack: Tile[]; minMoves: number }[]>> = {}
+
+/** The two directions of the duality, each with the goal shape it targets. */
+const ARCHETYPES = [
+  { id: 'groups-to-runs' as const, build: buildGroupsToRuns, plan: planColorRunGoal },
+  { id: 'runs-to-groups' as const, build: buildRunsToGroups, plan: planValueGroupGoal },
+]
+
+const sampleKey = (a: string, d: Difficulty) => `${a}|${d}`
+const samples = new Map<string, { grid: Grid; rack: Tile[]; minMoves: number }[]>()
 
 /**
  * (e) The puzzle must actually be winnable ON THE GRID, not merely partitionable
- * as a bag. Rebuild every tile as one run per colour, one colour per row, and
- * demand that validateGrid accepts it and that it uses exactly the same tiles.
+ * as a bag. Materialise the archetype's own goal plan onto an empty grid and
+ * demand that every tile lands on a distinct cell and that validateGrid accepts
+ * the result. Shape-agnostic: whichever goal the builder is aiming at, this
+ * checks that goal really is a win — not that it matches some hard-coded shape.
  */
-function goalLayoutIsReachable(grid: Grid, allTiles: Tile[]): boolean {
-  const byColor = new Map<Tile['c'], number[]>()
-  for (const t of allTiles) byColor.set(t.c, [...(byColor.get(t.c) ?? []), t.n])
-  const minVal = Math.min(...allTiles.map(t => t.n))
-
+function goalLayoutIsReachable(grid: Grid, allTiles: Tile[], plan: GoalPlan | null): boolean {
+  if (!plan) return false
   const goal: Grid = Array.from({ length: grid.length }, () => Array(grid[0].length).fill(null))
-  let r = 0
-  for (const [c, valsRaw] of byColor) {
-    const vals = [...valsRaw].sort((a, b) => a - b)
-    if (vals.length < 3) return false
-    for (let i = 1; i < vals.length; i++) if (vals[i] !== vals[i - 1] + 1) return false // not one run
-    if (r >= goal.length) return false
-    for (const v of vals) {
-      const col = v - minVal
-      if (col >= goal[0].length) return false
-      goal[r][col] = { n: v, c }
-    }
-    r++
+  for (const t of allTiles) {
+    const pos = plan.goal.get(`${t.n}_${t.c}`)
+    if (!pos) return false
+    const [r, c] = pos
+    if (r < 0 || r >= goal.length || c < 0 || c >= goal[0].length) return false
+    if (goal[r][c]) return false // two tiles claimed the same cell
+    goal[r][c] = t
   }
-  if (!validateGrid(goal)) return false
-  const key = (ts: Tile[]) => ts.map(t => `${t.n}${t.c}`).sort().join(',')
-  return key(goal.flat().filter((t): t is Tile => t !== null)) === key(allTiles)
+  return validateGrid(goal)
 }
 
-for (const diff of difficulties) {
-  let built = 0, attempts = 0, nulls = 0
-  let failA = 0, failB = 0, failC = 0, failD = 0, failDobvious = 0, failCollision = 0, exhausted = 0
-  let failE = 0, bruteChecked = 0, bruteDisagree = 0
-  let plantChecked = 0, plantMissed = 0
-  let coverChecked = 0, coverDirty = 0
-  const rackSizes: number[] = []
-  const moveCounts: number[] = []
-  const t0 = Date.now()
-
-  while (built < WANTED && attempts < MAX_ATTEMPTS) {
-    attempts++
-    const result = buildGroupsToRuns(diff)
-    if (!result) { nulls++; continue }
-    built++
-    const { grid, rack, allTiles, minMoves } = result
-    if (!samples[diff]) samples[diff] = []
-    if (samples[diff]!.length < 3) samples[diff]!.push({ grid, rack, minMoves })
-
-    if (!validateGrid(grid)) { failA++; anyInvariantFailed = true }
-    if (!solveBag(allTiles).solvable) { failB++; anyInvariantFailed = true }
-    if (formsValidSetAlone(rack)) { failC++; anyInvariantFailed = true }
-
-    const search = existsNoRelocationWin(grid, rack)
-    if (search.win) { failD++; anyInvariantFailed = true }
-    if (search.exhausted) { exhausted++; anyInvariantFailed = true }
-    if (obviousPlacementWins(grid, rack)) { failDobvious++; anyInvariantFailed = true }
-
-    const keys = allTiles.map(t => `${t.n}_${t.c}`)
-    if (new Set(keys).size !== keys.length) { failCollision++; anyInvariantFailed = true }
-
-    if (!goalLayoutIsReachable(grid, allTiles)) { failE++; anyInvariantFailed = true }
-
-    // Starting board shows clean, fully-covered horizontal sets at move zero.
-    coverChecked++
-    if (getInvalidCells(grid).size !== 0) { coverDirty++; anyInvariantFailed = true }
-
-    // Planted-win soundness on the real geometry, at full rack depth.
-    if (plantChecked < 5) {
-      const planted = plantedRunRack(grid)
-      if (planted) {
-        plantChecked++
-        if (!existsNoRelocationWin(grid, planted).win) { plantMissed++; anyInvariantFailed = true }
-      }
-    }
-
-    // Unpruned cross-check. Cheap for rack <= 3; for rack 4 the unpruned search
-    // is ~10^7 leaves on this geometry, so it runs only under DEEP=1.
-    const affordable = rack.length <= 3 ? bruteChecked < 10 : DEEP && bruteChecked < 1
-    if (affordable) {
-      bruteChecked++
-      if (bruteNoRelocationWin(grid, rack) !== search.win) { bruteDisagree++; anyInvariantFailed = true }
-    }
-
-    rackSizes.push(rack.length)
-    moveCounts.push(minMoves)
-  }
-
-  const avg = (xs: number[]) => xs.length ? (xs.reduce((a, b) => a + b, 0) / xs.length).toFixed(1) : 'n/a'
-  const ms = Date.now() - t0
-
-  console.log(`${diff}:  (${built} puzzles built from ${attempts} attempts, ${nulls} rejected by builder, ${ms}ms)`)
-  console.log(`  ${built - failA} / ${built}  pass (a) starting board valid`)
-  console.log(`  ${built - failB} / ${built}  pass (b) board+rack solvable`)
-  console.log(`  ${built - failC} / ${built}  pass (c) rack forms no valid set alone`)
-  console.log(`  ${built - failD - exhausted} / ${built}  pass (d) no no-relocation win  (${failD} had a win, ${exhausted} unproven/budget)`)
-  console.log(`  ${built - failDobvious} / ${built}  pass (d-literal) obvious placements do not win`)
-  console.log(`  ${built - failE} / ${built}  pass (e) a valid goal layout exists on this grid`)
-  console.log(`  ${built - failCollision} / ${built}  no duplicate tiles`)
-  console.log(`  ${coverChecked - coverDirty} / ${coverChecked}  starting board has ZERO invalid cells`)
-  console.log(`  planted-win cross-check (4-tile free-standing run on real boards): ${plantChecked} planted, ${plantMissed} missed by the pruned search`)
-  console.log(`  (d) vs unpruned brute force: ${bruteChecked} cross-checked, ${bruteDisagree} disagreements${bruteChecked === 0 ? '  (rack of 4 — run with DEEP=1)' : ''}`)
-  console.log(`  rack size: min ${Math.min(...rackSizes)}  max ${Math.max(...rackSizes)}  avg ${avg(rackSizes)}`)
-  console.log(`  reference solution length (minMoves): avg ${avg(moveCounts)}`)
+for (const arch of ARCHETYPES) {
+  console.log(`########## ARCHETYPE: ${arch.id} ##########`)
   console.log('')
+  for (const diff of difficulties) {
+    let built = 0, attempts = 0, nulls = 0
+    let failA = 0, failB = 0, failC = 0, failD = 0, failDobvious = 0, failCollision = 0, exhausted = 0
+    let failE = 0, bruteChecked = 0, bruteDisagree = 0
+    let plantChecked = 0, plantMissed = 0
+    let coverChecked = 0, coverDirty = 0
+    const rackSizes: number[] = []
+    const moveCounts: number[] = []
+    const t0 = Date.now()
+
+    while (built < WANTED && attempts < MAX_ATTEMPTS) {
+      attempts++
+      const result = arch.build(diff)
+      if (!result) { nulls++; continue }
+      built++
+      const { grid, rack, allTiles, minMoves } = result
+      const sk = sampleKey(arch.id, diff)
+      if (!samples.has(sk)) samples.set(sk, [])
+      if (samples.get(sk)!.length < 2) samples.get(sk)!.push({ grid, rack, minMoves })
+
+      if (!validateGrid(grid)) { failA++; anyInvariantFailed = true }
+      if (!solveBag(allTiles).solvable) { failB++; anyInvariantFailed = true }
+      if (formsValidSetAlone(rack)) { failC++; anyInvariantFailed = true }
+
+      const search = existsNoRelocationWin(grid, rack)
+      if (search.win) { failD++; anyInvariantFailed = true }
+      if (search.exhausted) { exhausted++; anyInvariantFailed = true }
+      if (obviousPlacementWins(grid, rack)) { failDobvious++; anyInvariantFailed = true }
+
+      const keys = allTiles.map(t => `${t.n}_${t.c}`)
+      if (new Set(keys).size !== keys.length) { failCollision++; anyInvariantFailed = true }
+
+      if (!goalLayoutIsReachable(grid, allTiles, arch.plan(grid, rack))) { failE++; anyInvariantFailed = true }
+
+      // Starting board shows clean, fully-covered horizontal sets at move zero.
+      coverChecked++
+      if (getInvalidCells(grid).size !== 0) { coverDirty++; anyInvariantFailed = true }
+
+      // Planted-win soundness on the real geometry, at full rack depth.
+      if (plantChecked < 5) {
+        const planted = plantedRunRack(grid)
+        if (planted) {
+          plantChecked++
+          if (!existsNoRelocationWin(grid, planted).win) { plantMissed++; anyInvariantFailed = true }
+        }
+      }
+
+      // Unpruned cross-check. Cheap for rack <= 3; for rack 4 the unpruned search
+      // is ~10^7 leaves on this geometry, so it runs only under DEEP=1.
+      const affordable = rack.length <= 3 ? bruteChecked < 10 : DEEP && bruteChecked < 1
+      if (affordable) {
+        bruteChecked++
+        if (bruteNoRelocationWin(grid, rack) !== search.win) { bruteDisagree++; anyInvariantFailed = true }
+      }
+
+      rackSizes.push(rack.length)
+      moveCounts.push(minMoves)
+    }
+
+    const avg = (xs: number[]) => xs.length ? (xs.reduce((a, b) => a + b, 0) / xs.length).toFixed(1) : 'n/a'
+    const ms = Date.now() - t0
+
+    console.log(`${diff}:  (${built} puzzles built from ${attempts} attempts, ${nulls} rejected by builder, ${ms}ms)`)
+    console.log(`  ${built - failA} / ${built}  pass (a) starting board valid`)
+    console.log(`  ${built - failB} / ${built}  pass (b) board+rack solvable`)
+    console.log(`  ${built - failC} / ${built}  pass (c) rack forms no valid set alone`)
+    console.log(`  ${built - failD - exhausted} / ${built}  pass (d) no no-relocation win  (${failD} had a win, ${exhausted} unproven/budget)`)
+    console.log(`  ${built - failDobvious} / ${built}  pass (d-literal) obvious placements do not win`)
+    console.log(`  ${built - failE} / ${built}  pass (e) the goal plan materialises to a validateGrid win`)
+    console.log(`  ${built - failCollision} / ${built}  no duplicate tiles`)
+    console.log(`  ${coverChecked - coverDirty} / ${coverChecked}  starting board has ZERO invalid cells`)
+    console.log(`  planted-win cross-check (4-tile free-standing run on real boards): ${plantChecked} planted, ${plantMissed} missed by the pruned search`)
+    console.log(`  (d) vs unpruned brute force: ${bruteChecked} cross-checked, ${bruteDisagree} disagreements${bruteChecked === 0 ? '  (rack of 4 — run with DEEP=1)' : ''}`)
+    console.log(`  rack size: min ${Math.min(...rackSizes)}  max ${Math.max(...rackSizes)}  avg ${avg(rackSizes)}`)
+    console.log(`  reference solution length (minMoves): avg ${avg(moveCounts)}`)
+    console.log('')
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -311,14 +319,16 @@ for (const diff of difficulties) {
 // horizontal set, so getInvalidCells must be literally empty. Printed, not
 // summarised.
 // ---------------------------------------------------------------------------
-console.log('=== STARTING BOARDS AT MOVE ZERO (3 real puzzles per difficulty) ===')
-for (const diff of difficulties) {
-  for (const [i, s] of (samples[diff] ?? []).entries()) {
-    const invalid = getInvalidCells(s.grid)
-    console.log(`\n--- ${diff} #${i + 1} --- rack: ${showTiles(s.rack)}   minMoves: ${s.minMoves}`)
-    console.log(showGrid(s.grid))
-    console.log(`  validateGrid = ${validateGrid(s.grid)}`)
-    console.log(`  getInvalidCells = ${showSet(invalid)}   size = ${invalid.size}`)
+console.log('=== STARTING BOARDS AT MOVE ZERO (2 real puzzles per archetype per difficulty) ===')
+for (const arch of ARCHETYPES) {
+  for (const diff of difficulties) {
+    for (const [i, s] of (samples.get(sampleKey(arch.id, diff)) ?? []).entries()) {
+      const invalid = getInvalidCells(s.grid)
+      console.log(`\n--- ${arch.id} / ${diff} #${i + 1} --- rack: ${showTiles(s.rack)}   minMoves: ${s.minMoves}`)
+      console.log(showGrid(s.grid))
+      console.log(`  validateGrid = ${validateGrid(s.grid)}`)
+      console.log(`  getInvalidCells = ${showSet(invalid)}   size = ${invalid.size}`)
+    }
   }
 }
 
@@ -356,8 +366,7 @@ function applyDrop(grid: Grid, rack: Tile[], d: Drop): void {
 
 interface SimResult { moves: number; won: boolean; note: string }
 
-function simulatePlan(startGrid: Grid, startRack: Tile[]): SimResult | null {
-  const plan = planColorRunGoal(startGrid, startRack)
+function simulatePlan(startGrid: Grid, startRack: Tile[], plan: GoalPlan | null): SimResult | null {
   if (!plan) return null
 
   const grid = startGrid.map(r => [...r])
@@ -406,41 +415,52 @@ function simulatePlan(startGrid: Grid, startRack: Tile[]): SimResult | null {
   return { moves, won, note: won ? 'validateGrid passed' : 'final grid INVALID' }
 }
 
-for (const diff of difficulties) {
-  let simmed = 0, exact = 0, wonAll = 0
-  const lines: string[] = []
-  for (let i = 0; i < 5; i++) {
-    const p = generatePuzzle(diff)
-    if (!p) continue
-    const sim = simulatePlan(p.grid, p.rack)
-    if (!sim) { lines.push(`  #${i + 1} no plan`); continue }
-    simmed++
-    if (sim.moves === p.optimalMoves) exact++
-    if (sim.won) wonAll++
-    lines.push(`  #${i + 1}  optimalMoves=${String(p.optimalMoves).padStart(2)}  simulated=${String(sim.moves).padStart(2)}  ` +
-      `${sim.moves === p.optimalMoves ? 'exact match' : 'MISMATCH'}  ${sim.note}`)
+// Built directly from each archetype (not generatePuzzle) so both directions are
+// exercised at every difficulty regardless of the 50/50 coin flip.
+for (const arch of ARCHETYPES) {
+  for (const diff of difficulties) {
+    let simmed = 0, exact = 0, wonAll = 0
+    const lines: string[] = []
+    for (let i = 0; i < 5; i++) {
+      const result = arch.build(diff)
+      if (!result) { lines.push(`  #${i + 1} builder returned null`); continue }
+      const sim = simulatePlan(result.grid, result.rack, arch.plan(result.grid, result.rack))
+      if (!sim) { lines.push(`  #${i + 1} no plan`); continue }
+      simmed++
+      if (sim.moves === result.minMoves) exact++
+      if (sim.won) wonAll++
+      lines.push(`  #${i + 1}  par=${String(result.minMoves).padStart(2)}  simulated=${String(sim.moves).padStart(2)}  ` +
+        `${sim.moves === result.minMoves ? 'exact match' : 'MISMATCH'}  ${sim.note}`)
+    }
+    console.log(`${arch.id} / ${diff}:`)
+    for (const l of lines) console.log(l)
+    check(`${arch.id}/${diff}: simulated move count equals par on all 5`, simmed === 5 && exact === 5)
+    check(`${arch.id}/${diff}: simulated sequence ends in a validateGrid win on all 5`, simmed === 5 && wonAll === 5)
+    console.log('')
   }
-  console.log(`${diff}:`)
-  for (const l of lines) console.log(l)
-  check(`${diff}: simulated move count equals optimalMoves on all 5`, simmed === 5 && exact === 5)
-  check(`${diff}: simulated sequence ends in a validateGrid win on all 5`, simmed === 5 && wonAll === 5)
-  console.log('')
 }
 
 console.log('')
-console.log('=== PLAYER-FACING generatePuzzle() — with internal retry ===')
+console.log('=== PLAYER-FACING generatePuzzle() — with internal retry + 50/50 direction ===')
+const dirTally: Record<string, number> = {}
 for (const diff of difficulties) {
   let ok = 0
-  const GENS = 10
+  const GENS = 40
   for (let i = 0; i < GENS; i++) {
     const puzzle = generatePuzzle(diff)
     if (!puzzle) continue
+    dirTally[puzzle.archetypeId ?? '?'] = (dirTally[puzzle.archetypeId ?? '?'] ?? 0) + 1
     const boardTiles = puzzle.grid.flat().filter((t): t is Tile => t !== null)
     const allTiles = [...boardTiles, ...puzzle.rack]
     if (validateGrid(puzzle.grid) && solveBag(allTiles).solvable && !isTrivial(puzzle.grid, puzzle.rack)) ok++
   }
   console.log(`${diff}: ${ok}/${GENS} generatePuzzle() calls produced a fully valid, non-trivial puzzle`)
 }
+const dirTotal = Object.values(dirTally).reduce((a, b) => a + b, 0)
+console.log(`direction mix over ${dirTotal} generated puzzles:`)
+for (const [id, n] of Object.entries(dirTally))
+  console.log(`  ${id.padEnd(16)} ${n}  (${((n / dirTotal) * 100).toFixed(0)}%)`)
+check('both directions are generated', Object.keys(dirTally).length === 2)
 
 console.log('')
 console.log(`=== SELF-TESTS: ${pass} passed, ${fail} failed ===`)
