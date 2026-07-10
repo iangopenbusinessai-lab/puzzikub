@@ -172,7 +172,7 @@ export function PlayScreen({ activeScreen, onNav, soundEnabled, onShowSettings, 
         ) : (
           <>
             <div style={{ display: 'flex', alignItems: 'center', fontSize: 12, color: 'var(--text-secondary)', margin: '4px 0 12px' }}>
-              moves: {moves}&nbsp;&nbsp;optimal: {currentPuzzle?.optimalMoves ?? '—'}&nbsp;&nbsp;rack: {rack.length}
+              moves: {moves}&nbsp;&nbsp;par: {currentPuzzle?.optimalMoves ?? '—'}&nbsp;&nbsp;rack: {rack.length}
               {currentPuzzle?.archetypeId && (diff === 'hard' || diff === 'extreme') && (
                 <ArchetypeBadge id={currentPuzzle.archetypeId} />
               )}
@@ -205,9 +205,9 @@ export function PlayScreen({ activeScreen, onNav, soundEnabled, onShowSettings, 
                   {currentPuzzle && moves === currentPuzzle.optimalMoves
                     ? `cleared ✓ perfect!  ${moves} moves`
                     : currentPuzzle && moves <= currentPuzzle.optimalMoves * 1.5
-                    ? `cleared ✓  ${moves} moves  (optimal: ${currentPuzzle.optimalMoves})`
+                    ? `cleared ✓  ${moves} moves  (par: ${currentPuzzle.optimalMoves})`
                     : currentPuzzle
-                    ? `cleared ✓  ${moves} moves  (optimal: ${currentPuzzle.optimalMoves} — try again for better?)`
+                    ? `cleared ✓  ${moves} moves  (par: ${currentPuzzle.optimalMoves} — beat your own record?)`
                     : `cleared ✓  ${moves} moves`}
                 </span>
               </div>

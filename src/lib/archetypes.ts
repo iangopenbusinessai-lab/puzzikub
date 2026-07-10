@@ -510,8 +510,8 @@ export function buildGroupsToRuns(diff: Difficulty): ArchetypeResult | null {
 
   // Board needs L rows; the goal layout needs 4 (one run per colour).
   const rows = Math.max(L, 4) + 2
-  // Board strips are 4 wide with up to 2 of jitter; the goal runs span L+2
-  // values from colStart. cols = L + 5 clears both with a margin.
+  // Board strips are 4 wide, all starting at the same colStart; the goal runs
+  // span L+2 values from colStart. cols = L + 5 clears both with a margin.
   const cols = L + 5
   const rowStart = 1
   const colStart = 1
@@ -527,8 +527,7 @@ export function buildGroupsToRuns(diff: Difficulty): ArchetypeResult | null {
 
   const grid: Grid = Array.from({ length: rows }, () => Array(cols).fill(null))
   for (let i = 0; i < L; i++) {
-    const off = colStart + randomInt(0, 2)
-    for (let k = 0; k < 4; k++) grid[rowStart + i][off + k] = { n: values[i], c: perms[i][k] }
+    for (let k = 0; k < 4; k++) grid[rowStart + i][colStart + k] = { n: values[i], c: perms[i][k] }
   }
 
   // (a) the board the player is shown is already fully valid.
