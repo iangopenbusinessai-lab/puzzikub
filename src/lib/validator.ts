@@ -77,10 +77,8 @@ function buildGroups(grid: Grid): GroupMaps {
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-function isCovered(hGroup: Group | null, vGroup: Group | null): boolean {
-  const hValid = !!(hGroup && hGroup.cells.length >= 3 && (isValidRun(hGroup.tiles) || isValidGroup(hGroup.tiles)))
-  const vValid = !!(vGroup && vGroup.cells.length >= 3 && (isValidRun(vGroup.tiles) || isValidGroup(vGroup.tiles)))
-  return hValid || vValid
+function isCovered(hGroup: Group | null): boolean {
+  return !!(hGroup && hGroup.cells.length >= 3 && (isValidRun(hGroup.tiles) || isValidGroup(hGroup.tiles)))
 }
 
 export function validateGrid(grid: Grid): boolean {
@@ -88,15 +86,12 @@ export function validateGrid(grid: Grid): boolean {
 
   const rows = grid.length
   const cols = grid[0]?.length ?? 0
-  const { hOf, vOf } = buildGroups(grid)
+  const { hOf } = buildGroups(grid)
 
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       if (!grid[r][c]) continue
-      const hLen = hOf[r][c]?.cells.length ?? 0
-      const vLen = vOf[r][c]?.cells.length ?? 0
-      if (hLen < 3 && vLen < 3) return false
-      if (!isCovered(hOf[r][c], vOf[r][c])) return false
+      if (!isCovered(hOf[r][c])) return false
     }
   }
 
@@ -109,12 +104,12 @@ export function getInvalidCells(grid: Grid): Set<string> {
 
   const rows = grid.length
   const cols = grid[0]?.length ?? 0
-  const { hOf, vOf } = buildGroups(grid)
+  const { hOf } = buildGroups(grid)
 
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       if (!grid[r][c]) continue
-      if (!isCovered(hOf[r][c], vOf[r][c])) invalid.add(`${r},${c}`)
+      if (!isCovered(hOf[r][c])) invalid.add(`${r},${c}`)
     }
   }
 
@@ -135,9 +130,9 @@ export function getNewlyValidCells(prevGrid: Grid, newGrid: Grid): Set<string> {
     for (let c = 0; c < cols; c++) {
       if (!newGrid[r][c]) continue
       const wasCovered = prevGrid[r]?.[c]
-        ? isCovered(prevMaps.hOf[r]?.[c] ?? null, prevMaps.vOf[r]?.[c] ?? null)
+        ? isCovered(prevMaps.hOf[r]?.[c] ?? null)
         : false
-      const nowCovered = isCovered(newMaps.hOf[r][c], newMaps.vOf[r][c])
+      const nowCovered = isCovered(newMaps.hOf[r][c])
       if (nowCovered && !wasCovered) result.add(`${r},${c}`)
     }
   }
