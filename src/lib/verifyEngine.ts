@@ -7,6 +7,7 @@ import {
   existsNoRelocationWin,
   obviousPlacementWins,
   isTrivial,
+  planColorRunGoal,
 } from './archetypes'
 import { generatePuzzle } from './generator'
 
@@ -319,6 +320,111 @@ for (const diff of difficulties) {
     console.log(`  validateGrid = ${validateGrid(s.grid)}`)
     console.log(`  getInvalidCells = ${showSet(invalid)}   size = ${invalid.size}`)
   }
+}
+
+// ---------------------------------------------------------------------------
+// minMoves is a claim about the real game, so it is settled by playing the real
+// game. `applyDrop` below is a line-for-line transcription of the DROP branch of
+// usePlayState's reducer — crucially, GRID→GRID onto an occupied cell swaps the
+// two tiles in a single move, which is where the cycle savings come from.
+//
+// The plan is executed the way the cost proof says it can be: drain every path
+// (tile whose goal cell is empty) first, then unwind each remaining cycle by
+// swapping into the goal cell, then drop the rack onto the cells now free. If
+// the simulated move count ever differs from planColorRunGoal's number, or the
+// final grid does not satisfy validateGrid, the number is wrong.
+// ---------------------------------------------------------------------------
+console.log('=== minMoves: SIMULATED REAL MOVE SEQUENCE (reducer semantics) ===')
+
+type Drop =
+  | { from: 'grid'; r: number; c: number; tr: number; tc: number }
+  | { from: 'rack'; idx: number; tr: number; tc: number }
+
+function applyDrop(grid: Grid, rack: Tile[], d: Drop): void {
+  if (d.from === 'rack') {
+    const tile = rack[d.idx]
+    rack.splice(d.idx, 1)
+    const displaced = grid[d.tr][d.tc]
+    grid[d.tr][d.tc] = tile
+    if (displaced) rack.push(displaced)
+  } else {
+    const tile = grid[d.r][d.c]
+    grid[d.r][d.c] = grid[d.tr][d.tc]
+    grid[d.tr][d.tc] = tile
+  }
+}
+
+interface SimResult { moves: number; won: boolean; note: string }
+
+function simulatePlan(startGrid: Grid, startRack: Tile[]): SimResult | null {
+  const plan = planColorRunGoal(startGrid, startRack)
+  if (!plan) return null
+
+  const grid = startGrid.map(r => [...r])
+  const rack = [...startRack]
+  const goalOf = (t: Tile) => plan.goal.get(`${t.n}_${t.c}`)!
+  let moves = 0
+
+  const misplaced = (): [number, number][] => {
+    const out: [number, number][] = []
+    for (let r = 0; r < grid.length; r++)
+      for (let c = 0; c < grid[0].length; c++) {
+        const t = grid[r][c]
+        if (!t) continue
+        const [gr, gc] = goalOf(t)
+        if (gr !== r || gc !== c) out.push([r, c])
+      }
+    return out
+  }
+
+  const budget = grid.length * grid[0].length * 4
+  for (let guard = 0; guard <= budget; guard++) {
+    const bad = misplaced()
+    if (bad.length === 0) break
+    if (guard === budget) return { moves, won: false, note: 'board phase did not terminate' }
+
+    // A tile whose goal cell is empty: plain relocation, drains a path tail-first.
+    const drain = bad.find(([r, c]) => {
+      const [gr, gc] = goalOf(grid[r][c]!)
+      return grid[gr][gc] === null
+    })
+    const [r, c] = drain ?? bad[0] // otherwise every goal is occupied: unwind a cycle
+    const [tr, tc] = goalOf(grid[r][c]!)
+    applyDrop(grid, rack, { from: 'grid', r, c, tr, tc })
+    moves++
+  }
+
+  // Every board tile is home, so each rack tile's goal cell is now empty.
+  while (rack.length > 0) {
+    const [tr, tc] = goalOf(rack[0])
+    if (grid[tr][tc] !== null) return { moves, won: false, note: `rack goal (${tr},${tc}) was occupied` }
+    applyDrop(grid, rack, { from: 'rack', idx: 0, tr, tc })
+    moves++
+  }
+
+  const won = rack.length === 0 && validateGrid(grid)
+  return { moves, won, note: won ? 'validateGrid passed' : 'final grid INVALID' }
+}
+
+for (const diff of difficulties) {
+  let simmed = 0, exact = 0, wonAll = 0
+  const lines: string[] = []
+  for (let i = 0; i < 5; i++) {
+    const p = generatePuzzle(diff)
+    if (!p) continue
+    const sim = simulatePlan(p.grid, p.rack)
+    if (!sim) { lines.push(`  #${i + 1} no plan`); continue }
+    simmed++
+    if (sim.moves === p.optimalMoves) exact++
+    if (sim.won) wonAll++
+    lines.push(`  #${i + 1}  optimalMoves=${String(p.optimalMoves).padStart(2)}  simulated=${String(sim.moves).padStart(2)}  ` +
+      `${sim.moves === p.optimalMoves ? 'exact match' : 'MISMATCH'}  ${sim.note}`)
+  }
+  console.log(`${diff}:`)
+  for (const l of lines) console.log(l)
+  check(`${diff}: simulated move count equals optimalMoves on all 5`, simmed === 5 && exact === 5)
+  check(`${diff}: simulated sequence ends in a validateGrid win on all 5`, simmed === 5 && wonAll === 5)
+  console.log('')
 }
 
 console.log('')

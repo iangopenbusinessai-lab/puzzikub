@@ -318,6 +318,165 @@ export function isTrivial(board: Grid, rack: Tile[]): boolean {
 // as the trap rather than as the scaffold.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// minMoves — the length of the reference solution under the REAL move model.
+//
+// usePlayState's DROP reducer, GRID→GRID branch:
+//     grid[src.row][src.col] = grid[row][col]
+//     grid[row][col]         = tile
+// Dropping a grid tile on an OCCUPIED cell SWAPS the two, in one move (and
+// Board.tsx fires onCellEnter on occupied cells, so the player can reach it).
+// A move therefore relocates one tile (target empty) or two (target occupied).
+//
+// Fix a goal layout: an injective map tile → cell. Draw one edge per misplaced
+// board tile, from the cell it sits on to the cell it belongs on. Goal cells are
+// distinct, so every cell has in-degree ≤ 1; a cell holds one tile, so
+// out-degree ≤ 1. The misplaced subgraph is therefore a disjoint union of simple
+// paths and simple cycles, and:
+//
+//   - A path of k tiles ends at an empty cell (a cell with an outgoing edge
+//     holds a tile; the last one does not). Walk it backwards — tail tile into
+//     the empty cell, then each tile into the cell just vacated. k moves.
+//   - A cycle of k tiles never touches an empty cell. Swap c1's tile with the
+//     occupant of its goal: c1's tile is now home, and the displaced tile sits
+//     at c1. Repeat. After k−1 swaps the last tile has landed on c1, its own
+//     goal. k−1 moves — one fewer than the k the tiles would cost apart.
+//   - Rack tiles have no cell, so they have out-degree 1 and in-degree 0: each
+//     heads a path and can never lie on a cycle. One move each.
+//
+//   cost(goal) = boardTiles + rack − fixed(goal) − cycles(goal)
+//
+// So minimising cost means maximising fixed + cycles, and a cycle decomposition
+// gets both in one O(tiles) pass. The goal family is "one colour's run per row";
+// its free parameters are which colour owns which row (a permutation of the ≤ 4
+// colours) plus where the block sits, so the whole minimisation is a few hundred
+// linear passes. Measured at 0.02 ms on a real extreme puzzle.
+//
+// This is exact for that family, which is what `optimalMoves` has always meant
+// here: the length of the solution the builder can prove, an upper bound on the
+// true optimum over every conceivable winning layout.
+// ---------------------------------------------------------------------------
+
+const tileKey = (t: Tile): string => `${t.n}_${t.c}`
+
+function permutations<T>(xs: T[]): T[][] {
+  if (xs.length <= 1) return [xs]
+  const out: T[][] = []
+  for (let i = 0; i < xs.length; i++) {
+    const rest = [...xs.slice(0, i), ...xs.slice(i + 1)]
+    for (const p of permutations(rest)) out.push([xs[i], ...p])
+  }
+  return out
+}
+
+/**
+ * Moves needed to drive `boardCells` onto `boardGoals` and empty a rack of
+ * `rackCount`. Cells are r * cols + c. `boardGoals` must be injective.
+ */
+export function layoutCost(boardCells: number[], boardGoals: number[], rackCount: number): number {
+  const n = boardCells.length
+  const occupant = new Map<number, number>()
+  for (let i = 0; i < n; i++) occupant.set(boardCells[i], i)
+
+  const misplaced: boolean[] = new Array(n)
+  let fixed = 0
+  for (let i = 0; i < n; i++) {
+    misplaced[i] = boardCells[i] !== boardGoals[i]
+    if (!misplaced[i]) fixed++
+  }
+
+  // 0 = unseen, 1 = on the current walk, 2 = retired.
+  const mark = new Uint8Array(n)
+  let cycles = 0
+
+  for (let i = 0; i < n; i++) {
+    if (!misplaced[i] || mark[i] !== 0) continue
+    const walk: number[] = []
+    let cur = i
+    while (cur !== -1 && misplaced[cur] && mark[cur] === 0) {
+      mark[cur] = 1
+      walk.push(cur)
+      const next = occupant.get(boardGoals[cur])
+      cur = next === undefined ? -1 : next
+    }
+    // Stopped on a node of this very walk ⇒ we closed a cycle. Stopping on a
+    // retired node is impossible (in-degree ≤ 1), and stopping on a fixed tile
+    // is impossible (it would share that tile's goal cell).
+    if (cur !== -1 && mark[cur] === 1) cycles++
+    for (const w of walk) mark[w] = 2
+  }
+
+  return n + rackCount - fixed - cycles
+}
+
+export interface GoalPlan {
+  /** Reference-solution length: exactly the moves `goal` costs to reach. */
+  moves: number
+  /** tileKey → [row, col] it occupies in the goal layout. Covers board + rack. */
+  goal: Map<string, [number, number]>
+}
+
+/**
+ * Cheapest "one colour's run per row" layout for these tiles, and its cost.
+ * Returns null when the tiles cannot form that layout at all (a colour whose
+ * values are not contiguous, or fewer than 3 of a colour, or no room on the
+ * grid) — the same condition verifyEngine's invariant (e) checks.
+ */
+export function planColorRunGoal(grid: Grid, rack: Tile[]): GoalPlan | null {
+  const rows = grid.length
+  const cols = grid[0]?.length ?? 0
+  if (rows === 0 || cols === 0) return null
+
+  const board: { tile: Tile; cell: number }[] = []
+  for (let r = 0; r < rows; r++)
+    for (let c = 0; c < cols; c++) {
+      const t = grid[r][c]
+      if (t) board.push({ tile: t, cell: r * cols + c })
+    }
+
+  const all = [...board.map(b => b.tile), ...rack]
+  if (all.length === 0) return null
+
+  const vmin = Math.min(...all.map(t => t.n))
+  const vmax = Math.max(...all.map(t => t.n))
+  const width = vmax - vmin // column offset of the highest value
+
+  const byColor = new Map<Tile['c'], number[]>()
+  for (const t of all) byColor.set(t.c, [...(byColor.get(t.c) ?? []), t.n])
+  for (const vals of byColor.values()) {
+    const sorted = [...vals].sort((a, b) => a - b)
+    if (sorted.length < 3) return null
+    for (let i = 1; i < sorted.length; i++) if (sorted[i] !== sorted[i - 1] + 1) return null
+  }
+
+  const colors = [...byColor.keys()]
+  if (colors.length > rows || width >= cols) return null
+
+  const boardCells = board.map(b => b.cell)
+  let best = Infinity
+  let bestGoal: Map<string, [number, number]> | null = null
+
+  for (const perm of permutations(colors)) {
+    for (let rowStart = 0; rowStart + colors.length <= rows; rowStart++) {
+      const rowOf = new Map<Tile['c'], number>()
+      perm.forEach((c, i) => rowOf.set(c, rowStart + i))
+      for (let colStart = 0; colStart + width < cols; colStart++) {
+        const cellOf = (t: Tile) => rowOf.get(t.c)! * cols + colStart + (t.n - vmin)
+        const cost = layoutCost(boardCells, board.map(b => cellOf(b.tile)), rack.length)
+        if (cost < best) {
+          best = cost
+          bestGoal = new Map(all.map(t => {
+            const cell = cellOf(t)
+            return [tileKey(t), [Math.floor(cell / cols), cell % cols] as [number, number]]
+          }))
+        }
+      }
+    }
+  }
+
+  return bestGoal ? { moves: best, goal: bestGoal } : null
+}
+
 interface Params { L: number; rackSize: number }
 
 function paramsFor(diff: Difficulty): Params {
@@ -398,18 +557,13 @@ export function buildGroupsToRuns(diff: Difficulty): ArchetypeResult | null {
   const search = existsNoRelocationWin(grid, rack)
   if (search.win || search.exhausted) return null
 
-  // Reference solution: the same tiles rebuilt as 4 runs, one colour per row,
-  // each spanning its own value range. Tiles already sitting on their target
-  // cell cost nothing; everything else is one move, as is every rack tile.
-  let settled = 0
-  for (const t of boardTiles) {
-    const goalR = rowStart + ALL_COLORS.indexOf(t.c)
-    const goalC = colStart + (t.n - (s - 1))
-    if (grid[goalR]?.[goalC] === t) settled++
-  }
-  const minMoves = rack.length + (boardTiles.length - settled)
+  // Reference solution: the same tiles rebuilt as 4 runs, one colour per row.
+  // Which colour takes which row, and where the block sits, are free — so pick
+  // the layout the player can reach in the fewest moves. See planColorRunGoal.
+  const plan = planColorRunGoal(grid, rack)
+  if (!plan) return null
 
-  return { grid, rack: shuffle(rack), allTiles, minMoves }
+  return { grid, rack: shuffle(rack), allTiles, minMoves: plan.moves }
 }
 
 /** Legacy alias — generator.ts still calls this name. */

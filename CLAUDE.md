@@ -265,15 +265,36 @@ src/lib/verifyEngine.ts standalone harness — re-run after any engine change
 ---
 
 ## Current status (update this after each session)
-As of this writing: three sessions are queued but NOT yet executed —
-(1) solver.ts open-reasoning fix for the empty-bag case and assignment
-reconstruction, (2) archetypes.ts open-reasoning construction redesign
-against the four invariants and two failure modes above, (3) mechanical
-wiring of generator.ts to route all difficulties through whatever
-session 2 produces. The verification harness has not yet been built or
-run against the current (known-broken) engine. Do not assume the
-engine currently satisfies the four invariants — assume it does not,
-until the harness says otherwise with real printed output.
+Solver, archetypes, generator and the harness are all built and green:
+`npx tsx src/lib/verifyEngine.ts` prints 35/35 self-tests passing and
+invariants (a)-(e) holding on 25 generated puzzles per difficulty.
+
+**The move model — do not re-derive.** usePlayState's DROP reducer,
+GRID→GRID branch, drops a grid tile onto an OCCUPIED cell by SWAPPING
+the two, in a single move; Board.tsx fires onCellEnter on occupied
+cells, so players can reach it. One move therefore relocates one tile
+(empty target) or two (occupied target). Every cost/move-count claim in
+src/lib/ depends on this.
+
+`optimalMoves` = `planColorRunGoal()` in archetypes.ts. For a goal
+layout (injective tile→cell), the misplaced board tiles form a
+functional graph whose components are simple paths and simple cycles, so
+
+    cost(goal) = boardTiles + rack − fixed(goal) − cycles(goal)
+
+(a k-cycle unwinds in k−1 swaps; a k-path costs k). One O(tiles) cycle
+decomposition per candidate layout, minimised over the 4! colour→row
+permutations × row/column placement — ~1ms on an extreme puzzle.
+Verified against real move-BFS on 265 instances (0 mismatches, incl.
+3- and 4-cycles) and by simulating the real reducer on 5 puzzles per
+difficulty (simulated count == optimalMoves, every run ends in a
+validateGrid win).
+
+Known scope limit: this is exact for the "one colour's run per row"
+goal family, i.e. it remains an *upper bound* on the true optimum over
+every conceivable winning layout. Full-win BFS is infeasible at real
+tile counts (14-28), so global optimality is not proven and should not
+be claimed.
 
 ## Prompt discipline
 - One file per session for solver/generator/archetypes/validator work
