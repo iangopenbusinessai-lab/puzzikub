@@ -58,13 +58,23 @@ export function formsValidSetAlone(tiles: Tile[]): boolean {
 // board tile. This is the gate that decides whether a puzzle is fill-in-the-
 // blank, so it is searched exhaustively rather than guessed at.
 //
+// Coverage is HORIZONTAL-ONLY (see validator.ts): a tile is valid iff its
+// maximal contiguous run of occupied cells *within its own row* is a valid run
+// or group. Two consequences drive everything below:
+//
+//   - Rows are independent. Placing a tile at (r,c) can only change the
+//     coverage of tiles in row r. Nothing above or below is affected.
+//   - A tile's only hope of being covered is its own row, so a row that cannot
+//     ever cover it — even given every unplaced tile — is a dead end.
+//
 // Completeness of the frontier-restricted search: given (c), a rack tile's
 // covering segment in a winning grid can never be all-rack (that segment would
-// be a valid run/group made of rack tiles alone). So every placed rack tile is
-// joined, through occupied cells, to a board tile. Ordering the placements by
-// distance from the board therefore always yields an order in which each tile
-// lands orthogonally adjacent to an already-occupied cell — which is exactly
-// the frontier the search explores. Nothing is missed.
+// be a valid run/group made of rack tiles alone). So every placed rack tile
+// shares a row-segment with a board tile. Ordering the placements by horizontal
+// distance from the nearest board tile in that segment always yields an order in
+// which each tile lands adjacent to an already-occupied cell. The frontier below
+// is the orthogonal neighbourhood, a superset of that horizontal one, so nothing
+// is missed.
 // ---------------------------------------------------------------------------
 
 const NODE_BUDGET = 200_000
@@ -72,11 +82,10 @@ const NODE_BUDGET = 200_000
 type Line = (Tile | null)[]
 
 function row(grid: Grid, r: number): Line { return grid[r] }
-function column(grid: Grid, c: number): Line { return grid.map(rw => rw[c]) }
 
 /**
- * Could the tile at `idx` ever sit in a valid segment along this line, given we
- * may still place any of `remaining` into the line's empty cells?
+ * Could the tile at `idx` ever sit in a valid segment along this row, given we
+ * may still place any of `remaining` into the row's empty cells?
  *
  * A final segment is a window [lo..hi] whose every empty cell gets filled and
  * whose two outside neighbours stay empty (or are walls). Over-approximates —
@@ -115,13 +124,13 @@ function lineCanCover(line: Line, idx: number, remaining: Tile[]): boolean {
   return false
 }
 
+/** Horizontal-only: a column can no longer cover anything. */
 function canEverBeCovered(grid: Grid, r: number, c: number, remaining: Tile[]): boolean {
-  return lineCanCover(row(grid, r), c, remaining) || lineCanCover(column(grid, c), r, remaining)
+  return lineCanCover(row(grid, r), c, remaining)
 }
 
-/** The maximal contiguous occupied cells through (r,c), horizontally and vertically. */
+/** The maximal contiguous occupied cells through (r,c) in its row. */
 function segmentCells(grid: Grid, r: number, c: number): [number, number][] {
-  const rows = grid.length
   const cols = grid[0].length
   const out: [number, number][] = []
 
@@ -130,12 +139,6 @@ function segmentCells(grid: Grid, r: number, c: number): [number, number][] {
   let hi = c
   while (hi < cols - 1 && grid[r][hi + 1]) hi++
   for (let i = lo; i <= hi; i++) out.push([r, i])
-
-  let top = r
-  while (top > 0 && grid[top - 1][c]) top--
-  let bot = r
-  while (bot < rows - 1 && grid[bot + 1][c]) bot++
-  for (let i = top; i <= bot; i++) if (i !== r) out.push([i, c])
 
   return out
 }
@@ -185,8 +188,8 @@ export function existsNoRelocationWin(board: Grid, rack: Tile[]): RelocationSear
         const key = `${r},${c},${tile.n}${tile.c}|${rest.map(t => `${t.n}${t.c}`).sort().join(',')}`
         if (!seen.has(key)) {
           seen.add(key)
-          // The placed tile, and every tile whose segment it just joined, must
-          // still have some route to being covered.
+          // The placed tile, and every tile whose row-segment it just joined,
+          // must still have some route to being covered.
           let alive = canEverBeCovered(grid, r, c, rest)
           if (alive) {
             for (const [tr, tc] of segmentCells(grid, r, c)) {
@@ -215,9 +218,10 @@ export function existsNoRelocationWin(board: Grid, rack: Tile[]): RelocationSear
 /**
  * Invariant (d), stated literally: send every rack tile to an "obvious" home —
  * an open run endpoint of matching colour and adjacent value, or a group of 3
- * missing exactly this tile — in either direction, and see whether that wins.
- * Strictly weaker than existsNoRelocationWin; kept because it is the property
- * the spec names, and it names the failure when one occurs.
+ * missing exactly this tile — and see whether that wins. Horizontal only, since
+ * a vertical arrangement is no longer a set. Strictly weaker than
+ * existsNoRelocationWin; kept because it is the property the spec names, and it
+ * names the failure when one occurs.
  */
 export function obviousSpots(grid: Grid, tile: Tile): [number, number][] {
   const rows = grid.length
@@ -226,22 +230,20 @@ export function obviousSpots(grid: Grid, tile: Tile): [number, number][] {
 
   const consider = (r: number, c: number) => {
     if (r < 0 || r >= rows || c < 0 || c >= cols || grid[r][c]) return
-    const lines: [Line, number][] = [[row(grid, r), c], [column(grid, c), r]]
-    for (const [line, idx] of lines) {
-      let lo = idx - 1
-      while (lo >= 0 && line[lo]) lo--
-      let hi = idx + 1
-      while (hi < line.length && line[hi]) hi++
-      const seg = line.slice(lo + 1, hi).filter((t): t is Tile => t !== null)
-      if (seg.length < 2) continue
-      if (isValidRun(seg) && isValidRun([...seg, tile])) { spots.push([r, c]); return }
-      if (seg.length === 3 && isValidGroup(seg) && isValidGroup([...seg, tile])) { spots.push([r, c]); return }
-    }
+    const line = row(grid, r)
+    let lo = c - 1
+    while (lo >= 0 && line[lo]) lo--
+    let hi = c + 1
+    while (hi < line.length && line[hi]) hi++
+    const seg = line.slice(lo + 1, hi).filter((t): t is Tile => t !== null)
+    if (seg.length < 2) return
+    if (isValidRun(seg) && isValidRun([...seg, tile])) { spots.push([r, c]); return }
+    if (seg.length === 3 && isValidGroup(seg) && isValidGroup([...seg, tile])) { spots.push([r, c]); return }
   }
 
   for (let r = 0; r < rows; r++)
     for (let c = 0; c < cols; c++)
-      if (grid[r][c]) { consider(r - 1, c); consider(r + 1, c); consider(r, c - 1); consider(r, c + 1) }
+      if (grid[r][c]) { consider(r, c - 1); consider(r, c + 1) }
 
   return spots
 }
@@ -273,24 +275,47 @@ export function isTrivial(board: Grid, rack: Tile[]): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Construction: "groups to runs".
+// Construction: "groups to runs", horizontal-only edition.
 //
 // The board shows the dual block D(4, L) — four colours over L consecutive
-// values — laid out as its L GROUPS: each value is one vertical column of four
-// colours. Columns are spaced two apart so no two of them ever touch, and
-// adjacent columns are colour-deranged (no colour shares a row with its
-// neighbour), which is what stops a rack tile dropped in the gap column from
-// bridging two board tiles into a run.
+// values — laid out as its L GROUPS. Under the horizontal-only rule a group has
+// to BE a horizontal strip, so each value gets its own row: four tiles of the
+// same value in four different colours, side by side. That is what the player
+// sees at move zero, and validateGrid accepts every one of them.
 //
-// The rack holds the block's run extensions: tiles at value s-1 and s+L, at
-// most one per colour and at most two per value. Those tiles cannot join a
-// column (wrong value: a column is a group of 4 and is already full) and cannot
-// extend a row (rows are single tiles, not runs). Every rack tile is homeless.
+// WHY THE RACK IS HOMELESS — the replacement for the old spacing/derangement
+// argument, which reasoned about vertical column adjacency and does not survive
+// the transpose. Two structural facts do all the work now:
+//
+//   1. ONE MAXIMAL SEGMENT PER ROW. Each board row holds exactly one contiguous
+//      strip and nothing else, so there is no interior gap between two board
+//      tiles in a row. The old failure — a rack tile bridging two flanking board
+//      tiles into a run — cannot even be expressed here. (Rows are separated
+//      vertically only for looks; vertical adjacency has no meaning any more.)
+//
+//   2. EVERY STRIP IS A *FULL* FOUR-COLOUR GROUP. isValidGroup caps at 4, so the
+//      strip cannot grow into a bigger group; and it holds four distinct colours,
+//      so it can never be part of a run. Appending ANY tile to either end of any
+//      board row therefore makes that row's segment invalid — whatever the tile
+//      is. This is stronger than the old guarantee, which depended on the rack's
+//      values; this one holds for every conceivable rack.
+//
+// So the only segment a rack tile can be covered by is one built entirely out of
+// rack tiles — and invariant (c) forbids exactly that. Hence (d) follows from
+// (c) on these boards. That implication is asserted, not assumed: the builder
+// still runs the full exhaustive existsNoRelocationWin gate below, and
+// verifyEngine.ts cross-checks the gate against a planted win and an unpruned
+// brute force.
+//
+// The rack holds the block's run extensions: tiles at value s-1 and s+L, at most
+// one per colour and at most two per value — so the rack contains no run (needs
+// three consecutive values in one colour; it has two non-adjacent values) and no
+// group (needs three colours at one value; it has at most two).
 //
 // The only way out is to see the block the other way round: break the L groups
-// apart and rebuild the same tiles as 4 runs, which the rack tiles then extend.
-// Same tiles, two structures — Latin-rectangle duality, used as the trap rather
-// than as the scaffold.
+// apart and rebuild the same tiles as 4 runs, one colour per row, which the rack
+// tiles then extend. Same tiles, two structures — Latin-rectangle duality, used
+// as the trap rather than as the scaffold.
 // ---------------------------------------------------------------------------
 
 interface Params { L: number; rackSize: number }
@@ -304,7 +329,12 @@ function paramsFor(diff: Difficulty): Params {
   }
 }
 
-/** A permutation of the 4 colours sharing no position with `prev`. */
+/**
+ * A permutation of the 4 colours sharing no position with `prev`. Purely
+ * cosmetic now — it keeps vertically adjacent rows from lining up a colour into
+ * a visible column, which would read as a meaningful structure when it is not.
+ * Correctness no longer depends on it.
+ */
 function derangedFrom(prev: Tile['c'][] | null): Tile['c'][] | null {
   for (let attempt = 0; attempt < 100; attempt++) {
     const p = shuffle(ALL_COLORS)
@@ -319,6 +349,16 @@ export function buildGroupsToRuns(diff: Difficulty): ArchetypeResult | null {
   // Need s-1 and s+L to exist inside 1..13.
   const s = randomInt(2, 13 - L)
 
+  // Board needs L rows; the goal layout needs 4 (one run per colour).
+  const rows = Math.max(L, 4) + 2
+  // Board strips are 4 wide with up to 2 of jitter; the goal runs span L+2
+  // values from colStart. cols = L + 5 clears both with a margin.
+  const cols = L + 5
+  const rowStart = 1
+  const colStart = 1
+
+  // Which value lands on which row, and the colour order inside each strip.
+  const values = shuffle(Array.from({ length: L }, (_, i) => s + i))
   const perms: Tile['c'][][] = []
   for (let i = 0; i < L; i++) {
     const p = derangedFrom(i === 0 ? null : perms[i - 1])
@@ -326,15 +366,11 @@ export function buildGroupsToRuns(diff: Difficulty): ArchetypeResult | null {
     perms.push(p)
   }
 
-  const rows = 6
-  const cols = 2 * L + 2
-  const rowStart = 1
-  const colStart = 1
-
   const grid: Grid = Array.from({ length: rows }, () => Array(cols).fill(null))
-  for (let i = 0; i < L; i++)
-    for (let r = 0; r < 4; r++)
-      grid[rowStart + r][colStart + 2 * i] = { n: s + i, c: perms[i][r] }
+  for (let i = 0; i < L; i++) {
+    const off = colStart + randomInt(0, 2)
+    for (let k = 0; k < 4; k++) grid[rowStart + i][off + k] = { n: values[i], c: perms[i][k] }
+  }
 
   // (a) the board the player is shown is already fully valid.
   if (!validateGrid(grid)) return null

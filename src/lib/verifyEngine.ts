@@ -1,6 +1,6 @@
 import type { Tile, Grid, Difficulty } from '../types'
 import { solveBag } from './solver'
-import { validateGrid } from './validator'
+import { validateGrid, getInvalidCells } from './validator'
 import {
   buildGroupsToRuns,
   formsValidSetAlone,
@@ -21,6 +21,7 @@ function check(label: string, condition: boolean) {
 const showGrid = (g: Grid) =>
   g.map(r => r.map(t => (t ? `${String(t.n).padStart(2)}${t.c}` : ' . ')).join(' ')).join('\n')
 const showTiles = (ts: Tile[]) => ts.map(t => `${t.n}${t.c}`).join(' ')
+const showSet = (s: Set<string>) => s.size === 0 ? '{}' : `{ ${[...s].join('  ')} }`
 
 console.log('=== SOLVER SELF-TESTS ===')
 check('empty bag is unsolvable', solveBag([]).solvable === false)
@@ -41,21 +42,58 @@ check('assignment field is populated when solvable',
   solvedResult.assignment !== undefined && solvedResult.assignment.size === 3)
 
 // ---------------------------------------------------------------------------
-// Regression: the exact production board that shipped as a one-drop win.
-// Board = 3x3 block of k/b/r over 7..9; rack = 8a. Dropping 8a under the 8
-// column completes a group of four and wins. The gate MUST call this trivial.
+// The rule change itself: only horizontal contiguous segments confer validity.
+// ---------------------------------------------------------------------------
+console.log('')
+console.log('=== VALIDATOR RULE: HORIZONTAL-ONLY COVERAGE ===')
+
+const hRun: Grid = Array.from({ length: 4 }, () => Array(4).fill(null))
+;[4,5,6].forEach((n, i) => { hRun[1][i] = { n, c: 'r' } })
+check('horizontal run of 3 is valid', validateGrid(hRun) === true)
+
+const hGroup: Grid = Array.from({ length: 4 }, () => Array(4).fill(null))
+;(['r','b','a'] as const).forEach((c, i) => { hGroup[1][i] = { n: 7, c } })
+check('horizontal group of 3 is valid', validateGrid(hGroup) === true)
+
+const vRun: Grid = Array.from({ length: 4 }, () => Array(4).fill(null))
+;[4,5,6].forEach((n, i) => { vRun[i][1] = { n, c: 'r' } })
+check('the SAME run arranged vertically is now INVALID', validateGrid(vRun) === false)
+
+const vGroup: Grid = Array.from({ length: 4 }, () => Array(4).fill(null))
+;(['r','b','a'] as const).forEach((c, i) => { vGroup[i][1] = { n: 7, c } })
+check('the SAME group arranged vertically is now INVALID', validateGrid(vGroup) === false)
+
+// ---------------------------------------------------------------------------
+// Regression: fill-in-the-blank boards must be rejected. Both shapes are now
+// stated horizontally, because that is the only orientation that can win.
 // ---------------------------------------------------------------------------
 console.log('')
 console.log('=== REGRESSION: known fill-in-the-blank boards must be rejected ===')
 
-const fitbGrid: Grid = Array.from({ length: 5 }, () => Array(10).fill(null))
-;(['k','b','r'] as const).forEach((c, r) => { for (let i = 0; i < 3; i++) fitbGrid[r][i] = { n: 7 + i, c } })
-const fitbRack: Tile[] = [{ n: 8, c: 'a' }]
-check('board is valid before the rack is placed', validateGrid(fitbGrid) === true)
-check('vertical group-completion win is detected (existsNoRelocationWin)',
-  existsNoRelocationWin(fitbGrid, fitbRack).win === true)
-check('vertical group-completion win is detected (isTrivial)',
-  isTrivial(fitbGrid, fitbRack) === true)
+// Horizontal run extension: row 2 is 7r 8r 9r; 10r appends and the grid is won.
+const fitbRun: Grid = Array.from({ length: 5 }, () => Array(10).fill(null))
+;(['k','b','r'] as const).forEach((c, r) => { for (let i = 0; i < 3; i++) fitbRun[r][i] = { n: 7 + i, c } })
+check('board is valid before the rack is placed', validateGrid(fitbRun) === true)
+check('horizontal run-extension win is detected (existsNoRelocationWin)',
+  existsNoRelocationWin(fitbRun, [{ n: 10, c: 'r' }]).win === true)
+check('horizontal run-extension win is detected (isTrivial)',
+  isTrivial(fitbRun, [{ n: 10, c: 'r' }]) === true)
+
+// Horizontal group completion: row 0 is 5r 5b 5a; 5k appends into a group of 4.
+const fitbGroup: Grid = Array.from({ length: 5 }, () => Array(10).fill(null))
+;(['r','b','a'] as const).forEach((c, i) => { fitbGroup[0][i] = { n: 5, c } })
+;[7,8,9].forEach((n, i) => { fitbGroup[2][i] = { n, c: 'r' } })
+;[2,3,4].forEach((n, i) => { fitbGroup[4][i] = { n, c: 'b' } })
+check('group-completion board is valid before the rack is placed', validateGrid(fitbGroup) === true)
+check('horizontal group-completion win is detected (existsNoRelocationWin)',
+  existsNoRelocationWin(fitbGroup, [{ n: 5, c: 'k' }]).win === true)
+check('horizontal group-completion win is detected (isTrivial)',
+  isTrivial(fitbGroup, [{ n: 5, c: 'k' }]) === true)
+
+// The old vertical trap: 8a beneath the 8-column used to complete a group of
+// four eights. Under horizontal-only coverage it is just a lone tile in row 3.
+check('the OLD vertical group-completion is no longer a win',
+  existsNoRelocationWin(fitbRun, [{ n: 8, c: 'a' }]).win === false)
 
 // Failure mode 2: rack is a complete run on its own.
 const freeGrid: Grid = Array.from({ length: 5 }, () => Array(10).fill(null))
@@ -78,7 +116,7 @@ console.log('=== (d) SEARCH SOUNDNESS ===')
 // Node types) — so `process` needs a local declaration rather than @types/node.
 declare const process: { env: Record<string, string | undefined> }
 
-/** DEEP=1 also brute-forces rack-of-4 puzzles (~20-45s each). */
+/** DEEP=1 also brute-forces rack-of-4 puzzles (minutes each). */
 const DEEP = process.env.DEEP === '1'
 console.log(`  deep unpruned cross-check on rack-of-4 puzzles: ${DEEP ? 'ON' : 'off (set DEEP=1)'}`)
 
@@ -128,6 +166,25 @@ check('planted wins agree with brute force (deep2)',
   bruteNoRelocationWin(deep2, [{n:6,c:'r'},{n:8,c:'r'}]) === true)
 
 // ---------------------------------------------------------------------------
+// Planted win on a REAL generated board. Unpruned brute force over a rack of 4
+// on the real geometry (50-64 empty cells) is ~10^7 leaves, so it cannot serve
+// as the cross-check there. Instead: hand the real board a rack that provably
+// HAS a no-relocation win — four consecutive values in one colour, none of them
+// on the board, which drop into the empty top row as a free-standing run — and
+// demand the pruned search finds it. If the row-only prune ever discarded a
+// reachable win at rack-of-4 depth, this is where it would show.
+// ---------------------------------------------------------------------------
+function plantedRunRack(grid: Grid): Tile[] | null {
+  const used = new Set<number>()
+  for (const t of grid.flat()) if (t) used.add(t.n)
+  for (let v = 1; v + 3 <= 13; v++) {
+    if ([v, v+1, v+2, v+3].every(x => !used.has(x)))
+      return [v, v+1, v+2, v+3].map(n => ({ n, c: 'r' as const }))
+  }
+  return null
+}
+
+// ---------------------------------------------------------------------------
 // Invariants (a)-(d) against real generated puzzles.
 // ---------------------------------------------------------------------------
 console.log('')
@@ -140,7 +197,7 @@ const difficulties: Difficulty[] = ['easy', 'medium', 'hard', 'extreme']
 const WANTED = 25
 const MAX_ATTEMPTS = 400
 let anyInvariantFailed = false
-const samples: Partial<Record<Difficulty, { grid: Grid; rack: Tile[]; minMoves: number }>> = {}
+const samples: Partial<Record<Difficulty, { grid: Grid; rack: Tile[]; minMoves: number }[]>> = {}
 
 /**
  * (e) The puzzle must actually be winnable ON THE GRID, not merely partitionable
@@ -175,6 +232,8 @@ for (const diff of difficulties) {
   let built = 0, attempts = 0, nulls = 0
   let failA = 0, failB = 0, failC = 0, failD = 0, failDobvious = 0, failCollision = 0, exhausted = 0
   let failE = 0, bruteChecked = 0, bruteDisagree = 0
+  let plantChecked = 0, plantMissed = 0
+  let coverChecked = 0, coverDirty = 0
   const rackSizes: number[] = []
   const moveCounts: number[] = []
   const t0 = Date.now()
@@ -185,7 +244,8 @@ for (const diff of difficulties) {
     if (!result) { nulls++; continue }
     built++
     const { grid, rack, allTiles, minMoves } = result
-    if (!samples[diff]) samples[diff] = { grid, rack, minMoves }
+    if (!samples[diff]) samples[diff] = []
+    if (samples[diff]!.length < 3) samples[diff]!.push({ grid, rack, minMoves })
 
     if (!validateGrid(grid)) { failA++; anyInvariantFailed = true }
     if (!solveBag(allTiles).solvable) { failB++; anyInvariantFailed = true }
@@ -201,9 +261,22 @@ for (const diff of difficulties) {
 
     if (!goalLayoutIsReachable(grid, allTiles)) { failE++; anyInvariantFailed = true }
 
-    // Unpruned cross-check. Cheap for rack <= 3 (~ms); for rack 4 the unpruned
-    // search costs 20-45s per puzzle, so it runs only under DEEP=1.
-    const affordable = rack.length <= 3 ? bruteChecked < 10 : DEEP && bruteChecked < 2
+    // Starting board shows clean, fully-covered horizontal sets at move zero.
+    coverChecked++
+    if (getInvalidCells(grid).size !== 0) { coverDirty++; anyInvariantFailed = true }
+
+    // Planted-win soundness on the real geometry, at full rack depth.
+    if (plantChecked < 5) {
+      const planted = plantedRunRack(grid)
+      if (planted) {
+        plantChecked++
+        if (!existsNoRelocationWin(grid, planted).win) { plantMissed++; anyInvariantFailed = true }
+      }
+    }
+
+    // Unpruned cross-check. Cheap for rack <= 3; for rack 4 the unpruned search
+    // is ~10^7 leaves on this geometry, so it runs only under DEEP=1.
+    const affordable = rack.length <= 3 ? bruteChecked < 10 : DEEP && bruteChecked < 1
     if (affordable) {
       bruteChecked++
       if (bruteNoRelocationWin(grid, rack) !== search.win) { bruteDisagree++; anyInvariantFailed = true }
@@ -224,18 +297,28 @@ for (const diff of difficulties) {
   console.log(`  ${built - failDobvious} / ${built}  pass (d-literal) obvious placements do not win`)
   console.log(`  ${built - failE} / ${built}  pass (e) a valid goal layout exists on this grid`)
   console.log(`  ${built - failCollision} / ${built}  no duplicate tiles`)
+  console.log(`  ${coverChecked - coverDirty} / ${coverChecked}  starting board has ZERO invalid cells`)
+  console.log(`  planted-win cross-check (4-tile free-standing run on real boards): ${plantChecked} planted, ${plantMissed} missed by the pruned search`)
   console.log(`  (d) vs unpruned brute force: ${bruteChecked} cross-checked, ${bruteDisagree} disagreements${bruteChecked === 0 ? '  (rack of 4 — run with DEEP=1)' : ''}`)
   console.log(`  rack size: min ${Math.min(...rackSizes)}  max ${Math.max(...rackSizes)}  avg ${avg(rackSizes)}`)
   console.log(`  reference solution length (minMoves): avg ${avg(moveCounts)}`)
   console.log('')
 }
 
-console.log('=== SAMPLE PUZZLES (one per difficulty) ===')
+// ---------------------------------------------------------------------------
+// The board as the player first sees it: every tile must sit inside a valid
+// horizontal set, so getInvalidCells must be literally empty. Printed, not
+// summarised.
+// ---------------------------------------------------------------------------
+console.log('=== STARTING BOARDS AT MOVE ZERO (3 real puzzles per difficulty) ===')
 for (const diff of difficulties) {
-  const s = samples[diff]
-  if (!s) continue
-  console.log(`\n--- ${diff} --- rack: ${showTiles(s.rack)}   minMoves: ${s.minMoves}`)
-  console.log(showGrid(s.grid))
+  for (const [i, s] of (samples[diff] ?? []).entries()) {
+    const invalid = getInvalidCells(s.grid)
+    console.log(`\n--- ${diff} #${i + 1} --- rack: ${showTiles(s.rack)}   minMoves: ${s.minMoves}`)
+    console.log(showGrid(s.grid))
+    console.log(`  validateGrid = ${validateGrid(s.grid)}`)
+    console.log(`  getInvalidCells = ${showSet(invalid)}   size = ${invalid.size}`)
+  }
 }
 
 console.log('')
