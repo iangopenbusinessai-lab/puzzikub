@@ -370,6 +370,22 @@ decoys therefore needs a NEW mixed-goal planner + fresh par proof — its own
 Opus/plan-mode design session, spec'd in `DECOY_DESIGN.md`. **Do NOT re-attempt
 as a bolt-on modifier, and do NOT pursue decoys for `groups-to-runs`.**
 
+**COUPLED BLOCKS — feasibility settled, see `COUPLED_DESIGN.md`.** A session
+tried "two dual blocks at non-overlapping value ranges sharing exactly one
+colour, coupled by row-tightness." A feasibility probe (run before any build)
+found three walls: (1) COLOUR BUDGET — a dual block needs ≥3 colours (a 2-colour
+block has no valid group form), and any two ≥3-colour subsets of the 4 game
+colours overlap in ≥2 colours, so "exactly one shared colour" is provably
+impossible without a 5th colour; (2) with ≥2 shared colours, a gap between
+ranges makes the shared colour non-contiguous → `planColorRunGoal` returns null
+(pure-planner wall, as with decoy); (3) every representable variant DECOMPOSES —
+sharing a colour across disjoint value ranges shares a label, not a resource, so
+the halves solve independently, and the row-tightness mechanism never bites for
+a pure-goal shape (any colour→row bijection is feasible). Genuine coupling needs
+a contested resource (overlapping ranges or tight cell geometry) + a generalized
+planner — its own session, spec'd in `COUPLED_DESIGN.md`. **Do NOT re-attempt
+the "shared colour across non-overlapping ranges" construction.**
+
 ## Prompt discipline
 - One file per session for solver/generator/archetypes/validator work
 - Always end with: Run tsc --noEmit AND real executed test output.
