@@ -386,6 +386,22 @@ a contested resource (overlapping ranges or tight cell geometry) + a generalized
 planner — its own session, spec'd in `COUPLED_DESIGN.md`. **Do NOT re-attempt
 the "shared colour across non-overlapping ranges" construction.**
 
+**RED HERRING — feasibility settled, see `RED_HERRING_DESIGN.md`.** A session
+tried a "red herring" modifier (two rack tiles both plausible for the same
+visible opportunity, only one correct, wrong one blocks). Probed before building;
+hits the SAME mixed-goal wall as decoy/coupled, two ways: (A) the only "one spot,
+two plausible tiles" configs on a valid board are a run's two ends (24/21 found
+per 10 runs-to-groups puzzles; ZERO on groups-to-runs' full-group board), and
+none of those extender tiles has a pure-planner home (`pairTilesWithPureHome=0`)
+— their true home is hybrid; (B) pure shape-ambiguous tiles (both a run- and
+group-home) DO exist and are pure-homed (20/40), but committing the "wrong" shape
+is an ALTERNATE VALID WIN, never a block (`BLOCKING-herring=0` across all rows) —
+the run/group duality means both readings solve. Root cause: dead-end temptations
+need hybrid-home boundary tiles; pure ambiguities never dead-end. THIRD
+independent convergence on the same missing capability — a MIXED-goal planner.
+Do decoy first (red herring is a strict superset). **Do NOT attempt as a bolt-on
+or on `groups-to-runs`.**
+
 ## Prompt discipline
 - One file per session for solver/generator/archetypes/validator work
 - Always end with: Run tsc --noEmit AND real executed test output.
