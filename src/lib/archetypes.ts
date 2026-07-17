@@ -751,8 +751,9 @@ function pickRackOffsets(L: number, k: number): number[] | null {
  * L=8 already costs 5+ seconds per build. rackSize barely moves the needle
  * (it only adds O(1) work per cost() call) — L is what must stay small.
  *
- * Consequence: extreme is deliberately allowed to cost ~5s per generation
- * (L=8) to reach its target par; every other tier stays under ~0.5s (L<=7).
+ * Consequence: L=8 (~5s/build) was tried for extreme to chase a higher par
+ * but reverted — the 10x generation-time cost wasn't worth the calibration
+ * gain over L=7 (~0.5s/build, same as hard). Every tier now stays at L<=7.
  * This trade was an explicit, discussed choice — see CLAUDE.md session notes
  * — not an oversight. rackSize is chosen at each L to land par as close to
  * (and, per that choice, slightly above rather than below) the measured
@@ -764,7 +765,7 @@ function runsToGroupsParamsFor(diff: Difficulty): Params {
     case 'easy': return { L: 5, rackSize: 2 }   // par 11  (target avg 10.6, range 10-11)
     case 'medium': return { L: 6, rackSize: 4 } // par 16  (target avg 13.4, range 12-15)
     case 'hard': return { L: 7, rackSize: 5 }   // par 20  (target avg 20.0, range 18-21)
-    case 'extreme': return { L: 8, rackSize: 6 } // par 24  (target avg 23.9, range 21-25) — ~5s/build
+    case 'extreme': return { L: 7, rackSize: 5 } // par 20  (reverted from L=8/par24: ~5s/build wasn't worth it, see CLAUDE.md)
   }
 }
 
