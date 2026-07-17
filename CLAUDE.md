@@ -355,6 +355,21 @@ par overlap at every tier (e.g. hard: groups-to-runs avg 20.6 vs
 runs-to-groups avg 20.0; extreme: groups-to-runs ~24.2 vs
 runs-to-groups 20.0, per the reversion above). `tsc --noEmit`: 0 errors.
 
+**DECOYS — feasibility settled, see `DECOY_DESIGN.md`.** A session tried to
+add a "decoy" tile (obvious-but-wrong placement, genuine hidden home) as a
+MODIFIER reusing the pure planners. A probe over 40 real puzzles (every
+candidate tile, both directions, hard+extreme) proved it impossible that way:
+`groups-to-runs` is inherently decoy-proof (board is full groups → zero obvious
+board placements to be tempted by); `runs-to-groups` DOES have real board-visible
+decoys (boundary run-extensions in a board colour — 39 found at hard, 27 at
+extreme) but their true home is a HYBRID run+group layout that
+`planValueGroupGoal` cannot represent (`purePlacesD = 0`), so invariant (e) and
+par can't be computed by the existing machinery. Root cause: the run/group
+duality that makes the archetypes fair also makes them decoy-resistant. Shipping
+decoys therefore needs a NEW mixed-goal planner + fresh par proof — its own
+Opus/plan-mode design session, spec'd in `DECOY_DESIGN.md`. **Do NOT re-attempt
+as a bolt-on modifier, and do NOT pursue decoys for `groups-to-runs`.**
+
 ## Prompt discipline
 - One file per session for solver/generator/archetypes/validator work
 - Always end with: Run tsc --noEmit AND real executed test output.
