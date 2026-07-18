@@ -463,12 +463,63 @@ extreme 0.60 (measured emission ~32% / ~65%; extreme visibly > hard, as intended
 Par sits just above base runs-to-groups (hard 20 / extreme 20) — decoys are a touch
 harder, which is appropriate.
 
-*Still open for a follow-up session:* RED HERRING is now unblocked (strict superset
-of this machinery — reuse `mixedLayoutMoves` + a second plausible-but-homeless
-extender; see RED_HERRING_DESIGN.md). COUPLED still needs a contested-resource
-redesign (see COUPLED_DESIGN.md), not just the mixed planner. The decoy layout is
-placed on fresh rows (fixed=0/cycles=0); a future pass could overlap goal with board
-to trim par or add cycle-based variety if calibration ever wants it — not needed now.
+*Decoy layout note:* placed on fresh rows (fixed=0/cycles=0 → par = 3L+rackSize);
+a future pass could overlap goal with board to trim par or add cycle-based variety
+if calibration ever wants it — not needed now.
+
+**RED HERRING ARCHETYPE — built, wired, and verified (this session, superset of
+decoy).** `buildRedHerring(diff)` / `buildRedHerringAt(L)` in `archetypes.ts`
+(harness: `src/lib/redherring.verify.ts`). Wired into `generator.ts`, hard/extreme
+only, hidden `archetypeId: 'runs-to-groups-redherring'`; par flows through the
+normal `optimalMoves`. **Decoy and red herring are MUTUALLY EXCLUSIVE per puzzle**
+— one random roll picks at most one via disjoint probability bands; composing both
+on a single puzzle is INTENTIONALLY DEFERRED to a dedicated later session.
+
+*The construction (runs-to-groups only):* board = 3 colour runs at `s..s+L-1`. The
+rack carries TWO tempting extenders of the SAME run colour `c` at OPPOSITE ends —
+`Lo={s-1,c}` (extends the bottom) and `H={s+L,c}` (extends the top) — plus four
+kColour supports at `s, s+1, s+L-2, s+L-1`. Both extenders score as obvious
+run-extensions (OBVIOUS ×2). The genuine solution splits `c` into a LOW short run
+`{s-1,s,s+1}` and a HIGH short run `{s+L-2,s+L-1,s+L}`, keeps `c`'s middle as
+`{c,o1,o2}` groups, and turns the four vacated end-values into `{o1,o2,k}` groups.
+
+*The interaction (why it's a red herring, not two glued decoys):* both extenders'
+true homes come from the SAME hybrid reorganization, so committing EITHER obvious
+append makes `c` one contiguous block again and ORPHANS the other extender —
+provably unreachable. TRAP is scoped to this coupling and verified both directions
+with real `solveBag`: `solveBag(allTiles \ {c at s..s+L})` and
+`solveBag(allTiles \ {c at s-1..s+L-1})` are BOTH unsolvable, while the hybrid goal
+wins via `mixedLayoutMoves`. `existsNoRelocationWin` re-confirmed goal-shape-agnostic
+by reading it again (win=false, not exhausted on all builds).
+
+*What is PROVEN (real output: `redherring.verify.ts` 25/0, `verifyEngine.ts` 44/0,
+`tsc` clean):* on **25/25 builds per difficulty** — (a)-(e), **OBVIOUS ×2**
+(lo=25, hi=25), **TRAP ×2** (commit-high dead=25, commit-low dead=25), **HOME ×2**
+(both extenders have a real goal cell, 25/25). Witness simulated through the real
+DROP reducer == par with a `validateGrid` win, 6/6 per difficulty. Deterministic
+par `= 3L + rackSize` (rackSize=6): **hard L=5 → par 21, extreme L=6 → par 24**.
+
+*The L≤6 cap (measured, decisive):* with L≥7 the `c`-middle is ≥3 values, so
+"extend BOTH ends fully" leaves `o1/o2` middle RUNS and becomes an ALTERNATE WIN —
+the trap leaks. Probed directly before building: L=5/6 `extendBoth-dead=true`,
+**L=7 `extendBoth-dead=false`**. `buildRedHerringAt` rejects L∉{5,6}. This caps
+extreme at L=6 (par 24), so red-herring puzzles are a touch smaller than decoy's
+L=6/7 — accepted; the discrimination task, not raw size, is the point.
+
+*Timing — deterministic, NOT sub-ms like decoy (0.4ms), and here's why:* ~1.8ms
+(hard) / ~2.2ms (extreme) per build. No candidate search (fully deterministic goal),
+but each build runs more oracle calls than decoy — TWO `solveBag` trap checks plus
+the (b) solvability check plus `existsNoRelocationWin` over a LARGER rack (6 tiles)
+on an `(L+2)×(L+3)` grid with more empty cells; that exhaustive no-relocation search
+dominates. Still ~2ms, far under any budget, no blow-up.
+
+*Emission:* `REDHERRING_PROB` hard 0.20 / extreme 0.30 (`DECOY_PROB` lowered to
+0.30 / 0.45 so the bands stay disjoint). Measured ~22% / ~34% red herring; both
+trap layers and both base directions still appear at every applicable tier.
+
+*Still open:* decoy+red-herring COMPOSITION on one puzzle (deferred, above).
+COUPLED still needs a contested-resource redesign (see COUPLED_DESIGN.md), not just
+the mixed planner.
 
 ## Prompt discipline
 - One file per session for solver/generator/archetypes/validator work

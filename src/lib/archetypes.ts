@@ -979,3 +979,143 @@ export function buildDecoyAt(L: number): DecoyBuild | null {
 
   return { grid, rack: shuffle(rack), allTiles, minMoves: res.moves, goal, decoy, runExtension, s, L }
 }
+
+// ---------------------------------------------------------------------------
+// RED HERRING archetype (runs-to-groups only) — see RED_HERRING_DESIGN.md.
+//
+// A strict superset of the decoy machinery: instead of ONE tempting tile, the
+// rack carries TWO, at OPPOSITE ends of the same board run of colour c —
+//     Lo = {s-1, c}  (visibly extends c's run at the bottom)
+//     H  = {s+L, c}  (visibly extends c's run at the top)
+// Both score as obvious run-extensions (OBVIOUS ×2), so the player faces a real
+// discrimination task, not a single thing to be suspicious of.
+//
+// THE INTERACTION (this is what makes it a red herring, not two glued decoys):
+// both extenders' true homes come from the SAME hybrid reorganization — c splits
+// into a LOW short run {s-1,s,s+1} and a HIGH short run {s+L-2,s+L-1,s+L}, its
+// middle values stay as {c, o1, o2} groups, and the four vacated end-values
+// (s, s+1, s+L-2, s+L-1) become {o1, o2, kColour} groups (the four kColour
+// "supports"). Committing EITHER extender to its obvious append makes c one
+// contiguous block again, which destroys the OTHER extender's short-run home:
+// the other extender is orphaned and the remainder is UNSOLVABLE. So getting one
+// wrong provably makes the other's true home unreachable — the two tiles are
+// coupled through one reorganization, and neither obvious move is safe.
+//
+// TRAP scoping (verified with real solveBag, both directions):
+//   commit H  → solveBag(allTiles \ {c at s..s+L})    is UNSOLVABLE  (Lo orphaned)
+//   commit Lo → solveBag(allTiles \ {c at s-1..s+L-1}) is UNSOLVABLE (H orphaned)
+// while the correct hybrid goal (both extenders in their short runs) wins.
+//
+// L is capped at 6: with L≥7 the c-middle is ≥3 values wide, so "extend BOTH
+// ends fully" leaves o1/o2 middle RUNS and becomes an alternate win — the trap
+// would leak (measured directly: L=7 extendBoth-dead=false). L=5/6 keep the
+// middle at 1/2 values, too short to run, so extend-both is a genuine dead end.
+// ---------------------------------------------------------------------------
+
+/** L per difficulty for red herrings. Hard/extreme ONLY; L∈{5,6} (see cap above). */
+function redHerringParamsFor(diff: Difficulty): { L: number } | null {
+  switch (diff) {
+    case 'hard': return { L: 5 }
+    case 'extreme': return { L: 6 }
+    default: return null
+  }
+}
+
+/** Superset of ArchetypeResult exposing the internals a red herring needs
+ * verified: the hybrid goal, both tempting extenders, and both trap sets. */
+export interface RedHerringBuild extends ArchetypeResult {
+  goal: Map<string, [number, number]>
+  lowExtender: Tile
+  highExtender: Tile
+  /** Committing the LOW obvious extension (c across s-1..s+L-1) strands the rest. */
+  trapLow: Tile[]
+  /** Committing the HIGH obvious extension (c across s..s+L) strands the rest. */
+  trapHigh: Tile[]
+  s: number
+  L: number
+}
+
+export function buildRedHerring(diff: Difficulty): RedHerringBuild | null {
+  const p = redHerringParamsFor(diff)
+  if (!p) return null
+  return buildRedHerringAt(p.L)
+}
+
+/** L-parameterized red-herring core, exported for verification. L∈{5,6}. */
+export function buildRedHerringAt(L: number): RedHerringBuild | null {
+  if (L < 5 || L > 6) return null // <5: no middle group; >6: extend-both leaks a win
+
+  // Low extender needs s-1 ≥ 1; high extender value s+L ≤ 13.
+  const s = randomInt(2, 13 - L)
+
+  const colors = shuffle(ALL_COLORS)
+  const boardColors = colors.slice(0, 3)
+  const kColor = colors[3]
+  const c = boardColors[randomInt(0, 2)]                 // the herring run's colour
+  const others = boardColors.filter(x => x !== c)        // the two colours that only group
+
+  // Goal has L+2 windows (two short runs + one group per value), one per row.
+  const rows = L + 2
+  const cols = L + 3
+  const grid: Grid = Array.from({ length: rows }, () => Array(cols).fill(null))
+  boardColors.forEach((col, i) => { for (let o = 0; o < L; o++) grid[i][1 + o] = { n: s + o, c: col } })
+
+  // (a) the board shown is already fully valid.
+  if (!validateGrid(grid)) return null
+
+  const lowExtender: Tile = { n: s - 1, c }
+  const highExtender: Tile = { n: s + L, c }
+  const rack: Tile[] = [
+    lowExtender,
+    highExtender,
+    { n: s, c: kColor }, { n: s + 1, c: kColor },            // supports for the LOW short run
+    { n: s + L - 2, c: kColor }, { n: s + L - 1, c: kColor }, // supports for the HIGH short run
+  ]
+
+  // (c) the expanded rack is not already a self-contained set.
+  if (formsValidSetAlone(rack)) return null
+
+  const boardTiles = grid.flat().filter((t): t is Tile => t !== null)
+  const allTiles = [...boardTiles, ...rack]
+
+  // (b) board + rack really is partitionable (both extenders have real homes).
+  if (!solveBag(allTiles).solvable) return null
+
+  // (d) the obvious moves must fail — exhaustively, not heuristically.
+  const search = existsNoRelocationWin(grid, rack)
+  if (search.win || search.exhausted) return null
+
+  // OBVIOUS ×2: both extenders must have a visible, tempting board placement.
+  if (obviousSpots(grid, lowExtender).length === 0) return null
+  if (obviousSpots(grid, highExtender).length === 0) return null
+
+  // TRAP ×2 (the interaction): committing EITHER obvious extension strands the
+  // rest — chiefly by orphaning the OTHER extender (its short-run home is gone).
+  const inHigh = (t: Tile) => t.c === c && t.n >= s && t.n <= s + L
+  const inLow = (t: Tile) => t.c === c && t.n >= s - 1 && t.n <= s + L - 1
+  const trapHigh = allTiles.filter(inHigh)
+  const trapLow = allTiles.filter(inLow)
+  if (solveBag(allTiles.filter(t => !inHigh(t))).solvable) return null
+  if (solveBag(allTiles.filter(t => !inLow(t))).solvable) return null
+
+  // Deterministic hybrid goal: two short runs of c (low + high), then one group
+  // per value — c-middle stays {c,o1,o2}, the four vacated ends are {o1,o2,k}.
+  const windows: WindowSpec[] = [
+    { type: 'run', color: c, start: s - 1, length: 3 },
+    { type: 'run', color: c, start: s + L - 2, length: 3 },
+  ]
+  for (let o = 0; o < L; o++) {
+    const pulled = o === 0 || o === 1 || o === L - 2 || o === L - 1
+    windows.push({ type: 'group', value: s + o, colors: pulled ? [...others, kColor] : [c, ...others] })
+  }
+
+  const goal = new Map<string, [number, number]>()
+  windows.forEach((w, wi) => windowTiles(w).forEach((t, i) => goal.set(tileKey(t), [wi, 1 + i])))
+
+  // (e) + GENUINE HOME ×2: both extenders sit in the two short runs; the whole
+  // hybrid reaches a validateGrid win with an exact par + witness.
+  const res = mixedLayoutMoves(grid, rack, goal)
+  if (!res || !res.reachedGoal || !res.validGoal) return null
+
+  return { grid, rack: shuffle(rack), allTiles, minMoves: res.moves, goal, lowExtender, highExtender, trapLow, trapHigh, s, L }
+}
