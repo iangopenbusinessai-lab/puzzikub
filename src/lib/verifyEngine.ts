@@ -460,7 +460,10 @@ const dirTotal = Object.values(dirTally).reduce((a, b) => a + b, 0)
 console.log(`direction mix over ${dirTotal} generated puzzles:`)
 for (const [id, n] of Object.entries(dirTally))
   console.log(`  ${id.padEnd(16)} ${n}  (${((n / dirTotal) * 100).toFixed(0)}%)`)
-check('both directions are generated', Object.keys(dirTally).length === 2)
+// Both base dualities must still appear; the optional hard/extreme decoy layer
+// adds a third internal category (runs-to-groups-decoy) and is not required here.
+check('both base directions are generated',
+  (dirTally['groups-to-runs'] ?? 0) > 0 && (dirTally['runs-to-groups'] ?? 0) > 0)
 
 console.log('')
 console.log(`=== SELF-TESTS: ${pass} passed, ${fail} failed ===`)

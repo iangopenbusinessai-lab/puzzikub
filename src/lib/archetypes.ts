@@ -1,6 +1,7 @@
 import type { Tile, Grid, Difficulty } from '../types'
 import { solveBag } from './solver'
 import { isValidRun, isValidGroup, validateGrid } from './validator'
+import { type WindowSpec, windowTiles, mixedLayoutMoves } from './mixedGoalPlanner'
 
 /** The two directions of the same Latin-rectangle duality. */
 export type ArchetypeType = 'groups-to-runs' | 'runs-to-groups'
@@ -824,4 +825,157 @@ export function buildRunsToGroupsAt(L: number, rackSize: number): ArchetypeResul
   if (!plan) return null
 
   return { grid, rack: shuffle(rack), allTiles, minMoves: plan.moves }
+}
+
+// ---------------------------------------------------------------------------
+// DECOY archetype (runs-to-groups only) — see DECOY_DESIGN.md.
+//
+// Board: three colour runs at values s..s+L-1 (a runs-to-groups board). The rack
+// carries ONE tempting decoy tile D = {s+L, c} in a *board* colour c: it visibly
+// extends c's run (obviousSpots recognises it), so the "obvious" move is to drop
+// it on the run's high end. That move is a DEAD END — committing D to the run
+// strands the rest (verified: solveBag on the remainder is UNSOLVABLE).
+//
+// D's genuine, non-obvious home is a HYBRID layout the pure planners cannot
+// represent: a short run {s+L-2, s+L-1, s+L} of colour c, which pulls c out of
+// values s+L-2 and s+L-1 so those two become {other-two-board-colours, kColour}
+// groups — reachable only because the rack carries kColour at exactly those two
+// values (the "supports"). A few interior kColour "fillers" complete other
+// values as 4-colour groups; their placement is what makes the trap bite (see
+// decoyFillerOffsets). Par + witness come from mixedLayoutMoves against this
+// deterministically-built goal — never planMixedGoal's factorial search.
+//
+// kColour is simply the 4th colour (not necessarily literal 'k'); it lives only
+// in groups, never in a run, so it can never extend a board run.
+// ---------------------------------------------------------------------------
+
+/**
+ * Interior filler offsets (into values s..) for a run of length L. Chosen so
+ * that after the run steals values s+L-2 and s+L-1, the two remaining board
+ * colours' leftover values [s..s+L-3] minus these fillers contain NO three
+ * consecutive values — which is exactly what makes the run-extension a dead end
+ * (the leftover 2-colour tiles can then form neither a run nor a group). Fillers
+ * are drawn from [0, L-4] only, so they never sit adjacent to the two supports
+ * at L-2/L-1 and therefore never form a 3-consecutive kColour run themselves.
+ * Deterministic: returns the first (smallest, lexicographically least) such set.
+ */
+function decoyFillerOffsets(L: number): number[] | null {
+  const M = L - 3 // leftover interval is [0..M]
+  if (M < 2) return null
+  const hasThreeConsecutive = (xs: number[]) => {
+    const s = [...xs].sort((a, b) => a - b)
+    for (let i = 0; i + 2 < s.length; i++) if (s[i + 1] === s[i] + 1 && s[i + 2] === s[i] + 2) return true
+    return false
+  }
+  const universe = Array.from({ length: M }, (_, i) => i) // [0, L-4]
+  const kept = Array.from({ length: M + 1 }, (_, i) => i) // [0, L-3]
+  for (let size = 0; size <= universe.length; size++)
+    for (const combo of combinations(universe, size)) {
+      const remaining = kept.filter(x => !combo.includes(x))
+      if (!hasThreeConsecutive(remaining)) return combo
+    }
+  return null
+}
+
+/** L per difficulty for decoys. Hard/extreme ONLY (null elsewhere) — decoys must
+ * never appear on easy/medium, per DECOY_DESIGN.md. */
+function decoyParamsFor(diff: Difficulty): { L: number } | null {
+  switch (diff) {
+    case 'hard': return { L: 6 }
+    case 'extreme': return { L: 7 }
+    default: return null
+  }
+}
+
+/** Superset of ArchetypeResult exposing the internals a decoy needs verified:
+ * the deterministic hybrid goal, the decoy tile, and the tempting run-extension
+ * set S. The generator only reads the ArchetypeResult fields. */
+export interface DecoyBuild extends ArchetypeResult {
+  goal: Map<string, [number, number]>
+  decoy: Tile
+  /** The tempting run-extension set — committing to it strands the remainder. */
+  runExtension: Tile[]
+  s: number
+  L: number
+}
+
+export function buildDecoy(diff: Difficulty): DecoyBuild | null {
+  const p = decoyParamsFor(diff)
+  if (!p) return null
+  return buildDecoyAt(p.L)
+}
+
+/** L-parameterized decoy core, exported for verification. */
+export function buildDecoyAt(L: number): DecoyBuild | null {
+  if (L < 5) return null // need a length-3 run plus at least one interior filler
+  const F = decoyFillerOffsets(L)
+  if (!F) return null
+
+  // Decoy value s+L must sit inside 1..13, so s ≤ 13-L.
+  const s = randomInt(1, 13 - L)
+
+  const colors = shuffle(ALL_COLORS)
+  const boardColors = colors.slice(0, 3)
+  const kColor = colors[3]
+  const c = boardColors[randomInt(0, 2)]                 // decoy / short-run colour
+  const others = boardColors.filter(x => x !== c)        // the two colours that stay whole
+
+  // Goal has L+1 windows (one short run + one group per value), one per row.
+  const rows = L + 1
+  const cols = L + 3
+  const grid: Grid = Array.from({ length: rows }, () => Array(cols).fill(null))
+  boardColors.forEach((col, i) => { for (let o = 0; o < L; o++) grid[i][1 + o] = { n: s + o, c: col } })
+
+  // (a) the board shown is already fully valid.
+  if (!validateGrid(grid)) return null
+
+  // Rack: the decoy, two supports (kColour at s+L-2 / s+L-1), and interior fillers.
+  const decoy: Tile = { n: s + L, c }
+  const rack: Tile[] = [
+    decoy,
+    { n: s + L - 2, c: kColor },
+    { n: s + L - 1, c: kColor },
+    ...F.map(o => ({ n: s + o, c: kColor })),
+  ]
+
+  // (c) the expanded rack is not already a self-contained set.
+  if (formsValidSetAlone(rack)) return null
+
+  const boardTiles = grid.flat().filter((t): t is Tile => t !== null)
+  const allTiles = [...boardTiles, ...rack]
+
+  // (b) board + rack really is partitionable (the decoy has a real home).
+  if (!solveBag(allTiles).solvable) return null
+
+  // (d) the obvious move must fail — exhaustively, not heuristically.
+  const search = existsNoRelocationWin(grid, rack)
+  if (search.win || search.exhausted) return null
+
+  // The decoy must actually have a visible, tempting board placement.
+  if (obviousSpots(grid, decoy).length === 0) return null
+
+  // TRAP PROPERTY: commit the decoy to its obvious run-extension (colour c across
+  // s..s+L) and the remainder must be UNSOLVABLE — the tempting move is a dead end.
+  const inRunExtension = (t: Tile) => t.c === c && t.n >= s && t.n <= s + L
+  const runExtension = allTiles.filter(inRunExtension)
+  if (solveBag(allTiles.filter(t => !inRunExtension(t))).solvable) return null
+
+  // Deterministic hybrid goal: short run {s+L-2,s+L-1,s+L}c on row 0, then one
+  // value-group per value on the following rows.
+  const windows: WindowSpec[] = [{ type: 'run', color: c, start: s + L - 2, length: 3 }]
+  for (let o = 0; o < L; o++) {
+    let groupColors: Tile['c'][]
+    if (o === L - 2 || o === L - 1) groupColors = [...others, kColor] // c was pulled into the run
+    else groupColors = F.includes(o) ? [...boardColors, kColor] : [...boardColors]
+    windows.push({ type: 'group', value: s + o, colors: groupColors })
+  }
+
+  const goal = new Map<string, [number, number]>()
+  windows.forEach((w, wi) => windowTiles(w).forEach((t, i) => goal.set(tileKey(t), [wi, 1 + i])))
+
+  // (e) par + witness for the hybrid goal, via the proven mixed planner core.
+  const res = mixedLayoutMoves(grid, rack, goal)
+  if (!res || !res.reachedGoal || !res.validGoal) return null
+
+  return { grid, rack: shuffle(rack), allTiles, minMoves: res.moves, goal, decoy, runExtension, s, L }
 }

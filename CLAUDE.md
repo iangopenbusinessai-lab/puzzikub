@@ -418,13 +418,57 @@ in any mixture, rather than the whole board being one pure shape.
   session should construct the goal deterministically, NOT lean on
   `planMixedGoal` for large W.
 
-*What is NOT done / still open:* no modifier is built on it yet; decoy invariants
-(a)-(e), the trap-property proof (`solveBag(allTiles \ S).solvable === false`),
-and integration into `generator.ts` remain the next session's job (do decoy
-first, per RED_HERRING_DESIGN.md). The BFS sweep skips instances >11 cells (318
-of 800) as a tractability guard — those are still witness-checked, just not
-BFS-checked; the O(tiles) analytic==witness identity is what covers realistic
-sizes, BFS only anchors it on small instances.
+*Tractability note:* the BFS sweep skips instances >11 cells (318 of 800) as a
+guard — those are still witness-checked, just not BFS-checked; the O(tiles)
+analytic==witness identity is what covers realistic sizes, BFS only anchors it on
+small instances.
+
+**DECOY ARCHETYPE — built, wired, and verified (this session, on top of the mixed
+planner above).** `buildDecoy(diff)` / `buildDecoyAt(L)` in `archetypes.ts` (harness:
+`src/lib/decoy.verify.ts`, run `npx tsx src/lib/decoy.verify.ts`). Wired into
+`generator.ts` as an optional layer, hard/extreme ONLY, hidden `archetypeId:
+'runs-to-groups-decoy'` (nothing player-facing reads it). Par flows through the
+normal `optimalMoves` field.
+
+*The construction (runs-to-groups only, per DECOY_DESIGN finding 1 — never
+`groups-to-runs`):* board = 3 colour runs at values `s..s+L-1`. Rack = one **decoy**
+`D={s+L, c}` in a board colour `c` (visibly extends `c`'s run — the tempting move),
+two **supports** (4th colour at `s+L-2`, `s+L-1`), and interior **fillers** (4th
+colour) chosen by `decoyFillerOffsets`. The decoy's genuine home is a HYBRID goal
+built DETERMINISTICALLY — short run `{s+L-2,s+L-1,s+L}c` + one group per value —
+scored by `mixedLayoutMoves` directly (NO `planMixedGoal` search). The filler
+placement is the crux: it fragments the two non-`c` colours' leftover values so
+that committing `D` to the run-extension leaves an unsolvable remainder.
+
+*What is PROVEN (real executed output: `decoy.verify.ts` 23/0, `verifyEngine.ts`
+44/0, `tsc` clean):*
+- All original invariants (a)-(e) hold on **25/25 builds per difficulty**, PLUS the
+  two new ones printed per puzzle: **TRAP** (`solveBag(allTiles \ run-extension)
+  .solvable === false`, 25/25) and **OBVIOUS** (`obviousSpots(board, D) > 0`, 25/25).
+  `existsNoRelocationWin` confirmed goal-shape-agnostic by reading it (dumps rack
+  into frontier cells, calls `validateGrid`) — win=false & not exhausted on all.
+- **Par proven by real move-sim, not narrated:** the witness simulated through a
+  faithful DROP-reducer transcription lands a `validateGrid` win in exactly par on
+  6/6 per difficulty. Par is deterministic `= 3L + rackSize` (fixed=0, cycles=0 for
+  this stacked layout): L=5→19, L=6→22, L=7→25, L=8→29. L=5 reproduces the mixed
+  planner's own proven par=19.
+- **Construction is fast — no cliff:** 0.4 ms/build avg (deterministic; a handful of
+  `solveBag`/`existsNoRelocationWin` calls, no candidate search).
+- `verifyEngine.ts` invariants (a)-(d) still pass on every `generatePuzzle()` output
+  INCLUDING the emitted decoys; both base directions still appear.
+
+*Parameters settled:* `decoyParamsFor` — **hard L=6 (par 22, grid 7×9), extreme L=7
+(par 25, grid 8×10)**. Decoy probability `DECOY_PROB` in `generator.ts` — hard 0.35,
+extreme 0.60 (measured emission ~32% / ~65%; extreme visibly > hard, as intended).
+Par sits just above base runs-to-groups (hard 20 / extreme 20) — decoys are a touch
+harder, which is appropriate.
+
+*Still open for a follow-up session:* RED HERRING is now unblocked (strict superset
+of this machinery — reuse `mixedLayoutMoves` + a second plausible-but-homeless
+extender; see RED_HERRING_DESIGN.md). COUPLED still needs a contested-resource
+redesign (see COUPLED_DESIGN.md), not just the mixed planner. The decoy layout is
+placed on fresh rows (fixed=0/cycles=0); a future pass could overlap goal with board
+to trim par or add cycle-based variety if calibration ever wants it — not needed now.
 
 ## Prompt discipline
 - One file per session for solver/generator/archetypes/validator work
