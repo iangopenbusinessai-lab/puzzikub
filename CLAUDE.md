@@ -85,35 +85,12 @@ tool to the kind of work:
 
 ---
 
-## Core types (src/types.ts)
-```ts
-interface Tile { n: number; c: 'r' | 'b' | 'a' | 'k' }
-type Grid = (Tile | null)[][]
-type Difficulty = 'easy' | 'medium' | 'hard' | 'extreme'
-type Screen = 'play' | 'library' | 'editor'
-
-interface Puzzle {
-  id: string
-  name: string
-  diff: Difficulty
-  grid: Grid          // starting board — fully solved, NO gaps, ever
-  rack: Tile[]         // extra tiles player must incorporate
-  optimalMoves: number // computed from construction, not searched
-  generated: boolean
-  archetypeId?: string
-}
-
-interface DragSrc {
-  from: 'rack' | 'grid'
-  rackIdx?: number
-  row?: number
-  col?: number
-}
-
-export const NUM_COLOR: Record<Tile['c'], string> = {
-  r: '#A32D2D', b: '#185FA5', a: '#BA7517', k: '#222222'
-}
-```
+## Core types
+See `src/types.ts` for the full definitions (Tile, Grid, Difficulty,
+Screen, Puzzle, DragSrc, NUM_COLOR). Two non-obvious contracts not
+expressed by the types themselves: `Puzzle.grid` is the starting board
+— fully solved, NO gaps, ever; `Puzzle.optimalMoves` is computed from
+construction, not searched.
 
 ---
 
@@ -401,6 +378,53 @@ need hybrid-home boundary tiles; pure ambiguities never dead-end. THIRD
 independent convergence on the same missing capability — a MIXED-goal planner.
 Do decoy first (red herring is a strict superset). **Do NOT attempt as a bolt-on
 or on `groups-to-runs`.**
+
+**MIXED-GOAL PLANNER — built and verified STANDALONE (this session).** The
+shared prerequisite all three briefs converge on now exists as
+`src/lib/mixedGoalPlanner.ts` (harness: `src/lib/mixedGoalPlanner.verify.ts`,
+run `npx tsx src/lib/mixedGoalPlanner.verify.ts`). It is deliberately NOT wired
+into `archetypes.ts`, `generator.ts`, or any modifier yet — that is follow-up
+work. What it is: a generalization of the proven cost model to HETEROGENEOUS
+final layouts, where each destination window is independently a run
+(`{type:'run',color,start,length}`) or a group (`{type:'group',value,colors[]}`),
+in any mixture, rather than the whole board being one pure shape.
+
+*What is PROVEN (real executed output, `16 passed / 0 failed`, `tsc` clean):*
+- **The crux claim holds.** `cost = totalTiles − fixed − cycles` (the
+  `makeCostCtx` graph argument) does NOT depend on windows sharing a type — it
+  needs only one current cell + one target cell per tile. Confirmed empirically:
+  a random sweep of **800 mixed instances, 482 cross-checked against an
+  unrestricted move-BFS over the real reducer semantics (GRID→GRID swap /
+  RACK→GRID displaced→rack, re-read from usePlayState.ts), 0 witness mismatches,
+  0 BFS mismatches, 478 of them containing genuine cross-window cycles** (a cycle
+  passing through a run window AND a group window). Plus 3 hand-crafted
+  BFS-checked cross-window cycle/path cases, all analytic==witness==BFS.
+- **The DECOY_DESIGN concrete example materialises**: board r/b/a runs 1..5 +
+  rack {2k,4k,5k,6r} → hybrid goal (run {4,5,6}r + five groups), 19 tiles,
+  `reachedGoal=true`, `validGoal=true` (a real `validateGrid` win), par=19 with a
+  witness of exactly 19 real drops.
+- **API**: `windowsPartitionBag()` (feasibility, delegates bag solvability to
+  `solveBag`), `mixedLayoutMoves(grid, rack, goalMap)` → exact moves + fixed +
+  cycles + concrete witness `Drop[]` + `reachedGoal`/`validGoal` flags
+  (O(tiles), **0.05–0.10 ms/call at 19–35 tiles** — use this directly when the
+  layout is known, e.g. decoy), and `planMixedGoal(...)` which SEARCHES window→row
+  placements.
+- **Known limit (measured, not guessed):** `planMixedGoal`'s placement search is
+  factorial in window count `W` — same `L!` wall as `planValueGroupGoal`: W=3
+  27ms, W=4 722ms, **W=5 23.6s** (W≥6 extrapolates to ~15-20 min, so the harness
+  caps the timing sweep at W=5). Callers that already know their intended layout
+  must build the goal map and call `mixedLayoutMoves` directly, bypassing the
+  search — the O(tiles) core has no blow-up. A future decoy/coupled/red-herring
+  session should construct the goal deterministically, NOT lean on
+  `planMixedGoal` for large W.
+
+*What is NOT done / still open:* no modifier is built on it yet; decoy invariants
+(a)-(e), the trap-property proof (`solveBag(allTiles \ S).solvable === false`),
+and integration into `generator.ts` remain the next session's job (do decoy
+first, per RED_HERRING_DESIGN.md). The BFS sweep skips instances >11 cells (318
+of 800) as a tractability guard — those are still witness-checked, just not
+BFS-checked; the O(tiles) analytic==witness identity is what covers realistic
+sizes, BFS only anchors it on small instances.
 
 ## Prompt discipline
 - One file per session for solver/generator/archetypes/validator work
