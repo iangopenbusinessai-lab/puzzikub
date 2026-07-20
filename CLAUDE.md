@@ -154,6 +154,35 @@ lines 124/127) — Step 2 must NOT modify `solveBag`, so they correctly remain
 zero new errors. (The Step 2 brief anticipated a drop of 2 here; that was a
 misread — those 2 errors are `solveBag`'s, not something Step 2 resolves.)
 
+**m=2 MIGRATION — Step 3 DONE (validator.ts: confirmation only, ZERO code
+changes, per the plan).** The audit claim held: `isValidRun` sorts and
+requires strict consecutiveness, so a duplicated value breaks the chain
+naturally; `isValidGroup` compares distinct-colour count to array length, so
+a duplicated colour breaks that naturally. Neither function references
+`tile.id`, and none needed to.
+
+*Verification (real executed output, `src/lib/verifyEngine.ts`, permanent —
+added to the existing `=== m=2 STEP 3: VALIDATOR DUPLICATE-AWARENESS
+(confirmation only) ===` section rather than a new file):*
+```
+  PASS  isValidRun rejects a duplicate value ([3r#0,3r#1,4r#0])
+  PASS  isValidGroup rejects a duplicate colour ([5r#0,5r#1,5b#0])
+  PASS  isValidGroup rejects a duplicate colour even at 4 tiles ([7r#0,7r#1,7b#0,7a#0])
+  PASS  validateGrid accepts duplicate (value,colour) tiles split across two valid runs
+  PASS  validateGrid still rejects an incomplete run even when it duplicates board values
+  PASS  getInvalidCells flags only the incomplete duplicate-bearing row
+  PASS  getInvalidCells leaves the complete duplicate-bearing row (row 0) unflagged
+  PASS  getNewlyValidCells reports exactly the row that became valid, duplicate values notwithstanding
+```
+The real case (not just the rejection cases) is `validateGrid` on a 2-row
+board where row 0 = `3r#0,4r#0,5r#0` and row 1 = `3r#1,4r#1,5r#1` — same
+three (value,colour) pairs duplicated across two independently valid runs
+— `=== true`. Full suite: `=== SELF-TESTS: 52 passed, 0 failed ===` (was 44
+before these 8 were added; nothing else changed or regressed).
+
+*tsc after Step 3: still 131 errors, UNCHANGED* — expected, since
+`validator.ts` was not touched at all.
+
 ---
 
 ## ENGINE ARCHITECTURE (src/lib/) — ground truth definitions

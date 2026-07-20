@@ -1,6 +1,7 @@
 import type { Tile, Grid, Difficulty } from '../types'
+import { makeTile } from '../types'
 import { solveBag } from './solver'
-import { validateGrid, getInvalidCells } from './validator'
+import { validateGrid, getInvalidCells, getNewlyValidCells, isValidRun, isValidGroup } from './validator'
 import {
   buildGroupsToRuns,
   buildRunsToGroups,
@@ -66,6 +67,54 @@ check('the SAME run arranged vertically is now INVALID', validateGrid(vRun) === 
 const vGroup: Grid = Array.from({ length: 4 }, () => Array(4).fill(null))
 ;(['r','b','a'] as const).forEach((c, i) => { vGroup[i][1] = { n: 7, c } })
 check('the SAME group arranged vertically is now INVALID', validateGrid(vGroup) === false)
+
+// ---------------------------------------------------------------------------
+// m=2 MIGRATION Step 3 — confirmation only, per MIGRATION_M2.md: prove the
+// existing validator already handles duplicate (value,colour) tiles with ZERO
+// code changes, since isValidRun sorts + requires strict consecutiveness (a
+// repeated value breaks that) and isValidGroup compares distinct-colour count
+// to array length (a repeated colour breaks that). If any check below fails,
+// the audit was wrong and validator.ts needs real design work, not a patch.
+// ---------------------------------------------------------------------------
+console.log('')
+console.log('=== m=2 STEP 3: VALIDATOR DUPLICATE-AWARENESS (confirmation only) ===')
+
+check('isValidRun rejects a duplicate value ([3r#0,3r#1,4r#0])',
+  isValidRun([makeTile(3, 'r', 0), makeTile(3, 'r', 1), makeTile(4, 'r', 0)]) === false)
+
+check('isValidGroup rejects a duplicate colour ([5r#0,5r#1,5b#0])',
+  isValidGroup([makeTile(5, 'r', 0), makeTile(5, 'r', 1), makeTile(5, 'b', 0)]) === false)
+
+check('isValidGroup rejects a duplicate colour even at 4 tiles ([7r#0,7r#1,7b#0,7a#0])',
+  isValidGroup([makeTile(7, 'r', 0), makeTile(7, 'r', 1), makeTile(7, 'b', 0), makeTile(7, 'a', 0)]) === false)
+
+{
+  // The actual m=2 case: the SAME (value,colour) duplicated across two
+  // different, independently valid runs must be a legal board.
+  const dupGrid: Grid = Array.from({ length: 2 }, () => Array(5).fill(null))
+  ;[0, 1].forEach(row => {
+    ;[3, 4, 5].forEach((n, i) => { dupGrid[row][i] = makeTile(n, 'r', row) })
+  })
+  check('validateGrid accepts duplicate (value,colour) tiles split across two valid runs',
+    validateGrid(dupGrid) === true)
+
+  // Same board shape, but row 1 is short one tile — must still be rejected.
+  const incompleteDupGrid: Grid = Array.from({ length: 2 }, () => Array(5).fill(null))
+  ;[3, 4, 5].forEach((n, i) => { incompleteDupGrid[0][i] = makeTile(n, 'r', 0) })
+  ;[3, 4].forEach((n, i) => { incompleteDupGrid[1][i] = makeTile(n, 'r', 1) })
+  check('validateGrid still rejects an incomplete run even when it duplicates board values',
+    validateGrid(incompleteDupGrid) === false)
+
+  const invalidCells = getInvalidCells(incompleteDupGrid)
+  check('getInvalidCells flags only the incomplete duplicate-bearing row',
+    invalidCells.size === 2 && invalidCells.has('1,0') && invalidCells.has('1,1'))
+  check('getInvalidCells leaves the complete duplicate-bearing row (row 0) unflagged',
+    !invalidCells.has('0,0') && !invalidCells.has('0,1') && !invalidCells.has('0,2'))
+
+  const newlyValid = getNewlyValidCells(incompleteDupGrid, dupGrid)
+  check('getNewlyValidCells reports exactly the row that became valid, duplicate values notwithstanding',
+    newlyValid.size === 3 && newlyValid.has('1,0') && newlyValid.has('1,1') && newlyValid.has('1,2'))
+}
 
 // ---------------------------------------------------------------------------
 // Regression: fill-in-the-blank boards must be rejected. Both shapes are now
