@@ -24,14 +24,55 @@ const DECOY_PROB: Partial<Record<Difficulty, number>> = { hard: 0.20, extreme: 0
 const REDHERRING_PROB: Partial<Record<Difficulty, number>> = { hard: 0.14, extreme: 0.22 }
 
 /**
+ * DEV-ONLY escape hatch for playtesting a specific variant. Not reachable from
+ * any UI control — PlayScreen only honours it when the developer deliberately
+ * types ?forceArchetype=... into the URL. See FORCE_TYPES below.
+ */
+export type ForceType =
+  | 'pure-groups-to-runs'
+  | 'pure-runs-to-groups'
+  | 'decoy'
+  | 'red-herring'
+  | 'composed'
+
+/** The accepted values, for validating untrusted input (e.g. a query param). */
+export const FORCE_TYPES: readonly ForceType[] = [
+  'pure-groups-to-runs', 'pure-runs-to-groups', 'decoy', 'red-herring', 'composed',
+]
+
+export function isForceType(v: string | null | undefined): v is ForceType {
+  return !!v && (FORCE_TYPES as readonly string[]).includes(v)
+}
+
+/**
  * Direction is chosen ~50/50 per puzzle so players meet both across a session.
  * It is recorded on archetypeId for internal use only — nothing player-facing
  * reveals it, since naming the mechanic gives away the solution.
  *
  * If the chosen direction cannot build a puzzle, the other one is tried rather
  * than failing outright.
+ *
+ * `forceType` (dev-only) bypasses the probability bands entirely and calls one
+ * builder directly. When it is undefined — the only case a real player ever hits
+ * — nothing below changes: the same Math.random() draws happen in the same order
+ * as before this parameter existed, so generation odds are untouched.
+ *
+ * A forced variant does NOT fall back to another archetype when its builder
+ * cannot produce a puzzle (e.g. the trap layers are hard/extreme only, so
+ * forcing 'decoy' at easy returns null). Failing visibly is the point of a dev
+ * flag — silently handing back a different variant would defeat it.
  */
-export function generatePuzzle(diff: Difficulty): Puzzle | null {
+export function generatePuzzle(diff: Difficulty, forceType?: ForceType): Puzzle | null {
+  if (forceType) {
+    switch (forceType) {
+      case 'pure-groups-to-runs': return generateArchetype('groups-to-runs', diff)
+      case 'pure-runs-to-groups': return generateArchetype('runs-to-groups', diff)
+      case 'decoy': return generateDecoy(diff)
+      case 'red-herring': return generateRedHerring(diff)
+      case 'composed': return generateComposed(diff)
+    }
+  }
+
   const roll = Math.random()
   const composedP = COMPOSED_PROB[diff] ?? 0
   const decoyP = DECOY_PROB[diff] ?? 0

@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useMemo, useRef, useContext } from 'react'
 import { usePlayState } from '../hooks/usePlayState'
 import { useDrag } from '../hooks/useDrag'
-import { generatePuzzle } from '../lib/generator'
+import { generatePuzzle, isForceType } from '../lib/generator'
 import { getNewlyValidCells } from '../lib/validator'
 import { playPlace, playLockIn, playError, playWinFanfare } from '../lib/audio'
 import { Board } from '../components/Board'
@@ -51,14 +51,34 @@ export function PlayScreen({ activeScreen, onNav, soundEnabled, onShowSettings, 
     }))
   ), [confettiId]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  /**
+   * DEV-ONLY: ?forceArchetype=decoy|red-herring|composed|pure-groups-to-runs|
+   * pure-runs-to-groups pins every generated puzzle to that variant. Read once
+   * on mount, deliberately has NO UI affordance — a normal player browsing the
+   * page has no way to discover or trigger it. Anything unrecognised is ignored
+   * and generation behaves exactly as it does without the parameter.
+   */
+  const forceType = useMemo(() => {
+    if (typeof window === 'undefined') return undefined
+    const raw = new URLSearchParams(window.location.search).get('forceArchetype')
+    return isForceType(raw) ? raw : undefined
+  }, [])
+
   const generate = useCallback((d: Difficulty) => {
     setGenFailed(false)
     for (let i = 0; i < 5; i++) {
-      const p = generatePuzzle(d)
-      if (p) { loadPuzzle(p); setCurrentPuzzle(p); return }
+      const p = generatePuzzle(d, forceType)
+      if (p) {
+        loadPuzzle(p); setCurrentPuzzle(p)
+        // Console-only confirmation that the forced variant really was built.
+        // Never rendered on screen; silent unless the dev flag is active.
+        if (forceType) console.log(`[forceArchetype=${forceType}] archetypeId=${p.archetypeId} diff=${d} par=${p.optimalMoves}`)
+        return
+      }
     }
+    if (forceType) console.log(`[forceArchetype=${forceType}] no puzzle for diff=${d} (trap layers are hard/extreme only)`)
     setGenFailed(true)
-  }, [loadPuzzle])
+  }, [loadPuzzle, forceType])
 
   useEffect(() => {
     generate('easy')
