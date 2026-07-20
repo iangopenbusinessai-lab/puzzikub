@@ -303,16 +303,91 @@ separately, screenshot. Not a typecheck.
 ## Phase D — re-verification
 
 ### Step 10 — re-verify all three trap modifiers under m=2
-**Session size:** medium. **Risk:** medium — expect real findings here.
+**Session size:** medium (was: medium). **Risk:** LOW (was: medium).
+**RESOLVED by a dedicated probe — the existing three traps are provably
+unaffected. See the verdict below.**
 
 Re-run `decoy.verify.ts`, `redherring.verify.ts`, `composed.verify.ts` unchanged.
 All three build their traps on `solveBag`-unsolvability of a reduced bag. Under
 m=2 the tile universe is strictly larger, so **a bag that was unsolvable under
 m=1 may become solvable under m=2** — which would silently defuse a trap.
 
-This is a real risk, not a formality: the decoy/red-herring/composed traps all
-work by stranding tiles, and a second copy of a colour gives stranded tiles a new
-home. Budget for the possibility that trap parameters need retuning.
+#### 10a — RESOLVED: the switch `solveBag → solveBagM2` changes NO existing trap verdict
+
+The worry above is real *only if the reduced bag gains a second copy*. It does
+not: Step 7 re-runs the SAME dup-free reduced bags through `solveBagM2` instead
+of `solveBag`. So the whole question collapses to one checkable claim —
+
+> **Does `solveBagM2` agree with `solveBag` on every duplicate-free bag?**
+
+A dedicated probe (temporary `src/lib/m2reduction.probe.ts`, deleted after; same
+discipline as the Step 6 probe) answered this against real executed output. It
+rebuilt `solveBagM2` from §2, cross-checked it against an independent brute-force
+m=2 oracle, then differentially tested it against the shipping `solveBag`.
+
+**Finding 1 — the reduction is EXACT (the single load-bearing number).** Over
+**5,400 duplicate-free bags — 0 mismatches**: `solveBagM2(bag).solvable ===
+solveBag(bag).solvable` on every one (3,000 random; 1,120 real archetype-shaped
+`allTiles` *and* every trap-reduced bag the builders feed to `solveBag`; 1,280
+adversarial near-misses). 560 came back solvable, 4,840 unsolvable, so both
+verdicts were exercised. This is a consequence of `solveBagM2` being *correct*:
+solvability is a property of the bag, not the algorithm, so any correct m≤2
+solver must agree with the (trusted) m=1 solver on m=1 bags. It is not assumed —
+it is measured.
+
+**Finding 2 — `solveBagM2` is genuinely m=2-correct, so Finding 1 is not two
+wrong solvers agreeing.** vs. the independent brute-force oracle: **0 mismatches**
+over 4,933 random m=2 bags (1,857 duplicate-bearing) + 925 solvable run+duplicate
+bags; and the §0.3 cut-point sweep (red 1-8 + a second red at all 28 pairs)
+reproduced **exactly** the 8 documented solvable pairs `(2,3)(3,4)(3,5)(3,6)
+(4,5)(4,6)(5,6)(6,7)`. Positive and negative paths both confirmed.
+
+**Finding 3 — the actual trap checks are byte-identical under the swap.** Running
+the exact `checkInvariants` trap logic of `decoy.verify.ts` /
+`redherring.verify.ts` / `composed.verify.ts` (the `bInv` solvable check + every
+`TRAP` unsolvable check) with `solveBagM2` substituted for `solveBag`, on the
+same generated puzzles: **500/500 checks identical AND semantically unchanged**
+(every `bInv` still solvable, every `TRAP` still a dead end). So after Step 7 the
+three harnesses pass with the same pass/fail they ship with today. No trap
+parameter needs retuning.
+
+**Finding 4 — no builder is inadvertently exposed to a second copy (Part 2
+audit).** `buildDecoy` / `buildRedHerring` / `buildComposed` never draw from a
+copy-indexed universe: they *synthesise* tiles from `(value, colour)` parameters
+(`shuffle(ALL_COLORS)` → `boardColors`/`kColor`, `pickRackOffsets`,
+`decoyFillerOffsets`, `[cDecoy, cHerring, cClean]`), each producing at most one
+tile per `(value, colour)`. Board colours live only at `s..s+L-1`; every rack
+tile is either the 4th colour (`kColor`, off-board) or a board colour at an
+off-board boundary value (`s-1`, `s+L`) — so no `(value, colour)` is ever
+constructed twice. The Step 1-5 changes do not alter this: **Step 5 is
+explicitly "no behaviour change, identical par" — it only swaps `{n,c}` literals
+for `makeTile(n,c)` and `tileKey` for `t.id`**, and the candidate-selection code
+is untouched, so `makeTile` is still called once per `(value, colour)`. The probe
+confirms this empirically: its differential harness throws on any duplicate in a
+structured bag, and it processed all 1,120 builder-emitted bags (both `allTiles`
+and trap-reduced) **without a single throw** — executed proof the three builders
+emit only single-copy tiles today, and Step 5 keeps it that way.
+
+**The one implementation requirement to carry into Step 4/5 (a correctness note,
+NOT a duplicate-exposure gap):** the builders build their hybrid `goal` map via
+`windows.forEach(w => windowTiles(w).forEach((t,i) => goal.set(tileKey(t), …)))`.
+Once `tileKey → t.id` (Step 5), `windowTiles`' spec→tile resolver (Step 4) must
+bind each spec slot to the **concrete tile id already present in `grid`+`rack`**,
+not to a freshly-minted id. For these three builders the binding is unambiguous —
+exactly one tile exists per `(value, colour)` — so there is no "which copy?"
+choice to get wrong (that ambiguity only arises for Step 11's duplicate
+archetype). A mis-wired resolver would surface as `mixedLayoutMoves` failing or a
+changed par, which Step 5's "identical par / harnesses green" gate catches
+immediately. It is not a silent trap-defusal path.
+
+**Net effect on this step:** for the three EXISTING modifiers, Step 10 is a
+re-run-and-confirm formality, not a retuning exercise — the probe has already
+shown the verdicts are invariant under the solver swap. The genuine
+trap-defusal risk the prose above describes is **entirely scoped to Step 11's new
+duplicate-*bearing* archetype**, where a reduced bag really can gain a second
+copy; that archetype must carry its own `solveBagM2`-based trap proof from
+scratch (it cannot inherit the existing traps' unsolvability arguments, which are
+m=1 facts). Budget the trap-parameter-retuning worry there, not here.
 
 ### Step 11 — the payoff: a duplicate-requiring archetype
 **Session size:** LARGE, open-reasoning. **This is the actual point of the
