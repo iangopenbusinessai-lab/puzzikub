@@ -517,9 +517,79 @@ dominates. Still ~2ms, far under any budget, no blow-up.
 0.30 / 0.45 so the bands stay disjoint). Measured ~22% / ~34% red herring; both
 trap layers and both base directions still appear at every applicable tier.
 
-*Still open:* decoy+red-herring COMPOSITION on one puzzle (deferred, above).
-COUPLED still needs a contested-resource redesign (see COUPLED_DESIGN.md), not just
-the mixed planner.
+**COMPOSED ARCHETYPE — built, wired, and verified (this session). The deferred
+composition question above is now CLOSED.** `buildComposed(diff)` /
+`buildComposedAt(L)` in `archetypes.ts` (harness: `src/lib/composed.verify.ts`).
+Wired into `generator.ts` as its own band, hard/extreme only, hidden `archetypeId:
+'runs-to-groups-composed'`. One board carries decoy's ONE-ended trap on colour `cD`
+AND red herring's TWO-ended trap on a different colour `cH` — the player must
+resolve both deceptions to win.
+
+*The naive superposition is PROVABLY impossible — probed with real `solveBag`
+BEFORE building, and this is why the composition needed a redesign rather than a
+merge of the two racks:*
+1. **TILE COLLISION.** decoy wants kColour supports at `{s+L-2, s+L-1}`; red
+   herring wants `{s, s+1, s+L-2, s+L-1}`. The 4th colour has ONE tile per value,
+   so they collide on exactly 2 tiles at **every** L (measured L=5..8).
+2. **GROUP BUDGET — the unfixable one.** Both traps' high ends finish in a short
+   run containing `s+L`, and any valid run containing `s+L` also contains `s+L-1`
+   and `s+L-2`. So `cD` and `cH` both vacate those two values, leaving
+   `{third board colour, kColour}` = 2 colours — below `isValidGroup`'s minimum of
+   3 (`isValidGroup([9a,9k]) === false`, printed). **No value range or grid size
+   repairs this**; it is forced by run contiguity, not by parameter choice.
+
+*The fix — a RUN-ONLY high end.* Rather than fight for a group at `s+L-2/s+L-1`,
+the layout gives up on having one: the third board colour `cC` ALSO runs across
+the high end (`{s+L-3..s+L-1}`), so all three board colours are in runs there and
+no group is needed; kColour simply carries no tile at those values. Rack = `D={s+L,cD}`,
+`Lo={s-1,cH}`, `H={s+L,cH}`, plus kColour supports at `s`, `s+1` (vacated by `cH`'s
+low run) and `s+L-3` (vacated by `cC`'s run) — 6 tiles, all distinct.
+
+*Why it's a genuine chain, not two puzzles sharing a grid:* `cC`'s run exists ONLY
+because `cD` and `cH` both vacate the high end — remove either trap's short run and
+`cC`'s tiles there need a group that no longer has three colours. The two traps are
+load-bearing for each other through one shared reorganization.
+
+*What is PROVEN (real output: `composed.verify.ts` **32/0**, `verifyEngine.ts` 44/0,
+`decoy.verify.ts` 23/0, `redherring.verify.ts` 25/0, `tsc` clean):* on **25/25 builds
+per difficulty** — (a)-(e), **OBVIOUS ×3** (decoy=25, lo=25, hi=25), **TRAP ×4**
+(decoy-append, herring-high, herring-low, herring-extend-both — all dead, 25 each),
+**HOME ×3** (25 each). Witness through the real DROP reducer == par with a
+`validateGrid` win, 6/6 per difficulty. Deterministic par `= 3L + 6`: **hard L=6 →
+par 24 (24 tiles, 8×9), extreme L=7 → par 27 (27 tiles, 9×10)** — the deepest tier
+the engine ships, above decoy (22/25) and red herring (21/24).
+
+*The COMPOSITION-SPECIFIC check neither prior session could run — the reduction risk
+was real to test and came back clean, 25/25 both tiers:* with ONE trap correctly
+resolved (that colour's genuine short run(s) committed and removed from the bag), the
+remainder stays solvable AND the OTHER trap's obvious move is STILL a `solveBag`
+dead end — herring-high dead=25, herring-low dead=25 after resolving decoy;
+decoy-append dead=25 after resolving the herring. Also verified: resolving one trap
+alone is NOT a `validateGrid` win (25/25). So progress on one deception never defuses
+the other. Plus explicit collision checks (rack distinct, tile set distinct, goal is an
+exact duplicate-free cover, goal cells distinct) — 25/25 both tiers.
+
+*The L≥6 cap (measured, two independent reasons):* at L=5 the three kColour supports
+land on `s, s+1, s+2` — three consecutive, a valid run on their own, breaking
+invariant (c) — AND `decoy-c1-append dead=false`, i.e. the trap doesn't bite yet.
+`buildComposedAt` rejects L<6. L=8 verifies clean (par 30, 10×11) and is available if
+a deeper tier is ever wanted.
+
+*Timing:* ~3.5 ms/build both tiers (hard avg 3.48, extreme avg 3.63) — deterministic,
+no search. Higher than red herring's ~2 ms because each build runs FOUR `solveBag`
+trap checks plus (b) plus `existsNoRelocationWin` over a 6-tile rack on a larger grid.
+Still far under budget, no cliff.
+
+*Emission (three disjoint bands, at most one layer per puzzle):* `COMPOSED_PROB` hard
+0.12 / extreme 0.25, `DECOY_PROB` 0.20 / 0.30, `REDHERRING_PROB` 0.14 / 0.22. Measured:
+composed ~15% / ~24%, decoy ~22% / ~32%, red herring ~14% / ~23%, base archetypes still
+emitted at both tiers. Note the earlier band values were retuned mid-session: a first
+pass (decoy 0.26/0.32, herring 0.18/0.22) made `redherring.verify.ts`'s "extreme rate >
+hard rate" assertion statistically marginal and it failed 2 checks on one run — real
+flakiness from too narrow a gap, fixed by widening rather than by loosening the test.
+
+*Still open:* COUPLED still needs a contested-resource redesign (see
+COUPLED_DESIGN.md), not just the mixed planner.
 
 ## Prompt discipline
 - One file per session for solver/generator/archetypes/validator work

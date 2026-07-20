@@ -1119,3 +1119,201 @@ export function buildRedHerringAt(L: number): RedHerringBuild | null {
 
   return { grid, rack: shuffle(rack), allTiles, minMoves: res.moves, goal, lowExtender, highExtender, trapLow, trapHigh, s, L }
 }
+
+// ---------------------------------------------------------------------------
+// COMPOSED archetype — decoy AND red herring on ONE board, different colours.
+//
+// The goal is a multi-step deductive chain: the player must resolve a one-ended
+// trap on colour cD *and* a two-ended trap on colour cH to win. Neither mechanic
+// in isolation, and not two independent puzzles side by side — see the coupling
+// note below.
+//
+// WHY THE NAIVE SUPERPOSITION IS IMPOSSIBLE (probed with real solveBag before
+// building, not assumed). Simply putting buildDecoy's rack on colour cD and
+// buildRedHerring's rack on colour cH fails twice over:
+//
+//   1. TILE COLLISION. decoy wants kColour supports at {s+L-2, s+L-1}; red
+//      herring wants them at {s, s+1, s+L-2, s+L-1}. The 4th colour has exactly
+//      ONE tile per value, so the two demands collide on 2 tiles at every L.
+//   2. The deeper, unfixable-by-retuning wall — GROUP BUDGET. Both modifiers'
+//      high traps end in a short run containing s+L, and *any* valid run
+//      containing s+L also contains s+L-1 and s+L-2. So both cD and cH vacate
+//      those two values, leaving only {third board colour, kColour} = 2 colours
+//      there — below isValidGroup's minimum of 3. No choice of value range or
+//      grid size repairs this, because it is forced by run contiguity.
+//
+// THE FIX — make the high end a RUN-ONLY ZONE. Rather than fight for a group at
+// s+L-2 / s+L-1, the layout gives up on having one: the third board colour cC
+// also runs across the high end, so all three board colours are in runs there
+// and no group is needed at all. kColour simply carries no tile at those values.
+//
+//   board  : three colour runs at s..s+L-1 (a runs-to-groups board)
+//   rack   : D  = {s+L, cD}          one-ended  decoy   (extends cD's run, top)
+//            Lo = {s-1, cH}          two-ended  herring (extends cH's run, bottom)
+//            H  = {s+L, cH}          two-ended  herring (extends cH's run, top)
+//            kColour supports at s, s+1 (cH's low run pulls cH from there) and
+//            at s+L-3 (cC's run pulls cC from there)
+//   goal   : run cD {s+L-2 .. s+L}      <- D's genuine home
+//            run cH {s-1 .. s+1}        <- Lo's genuine home
+//            run cH {s+L-2 .. s+L}      <- H's genuine home
+//            run cC {s+L-3 .. s+L-1}    <- the run-only zone's third leg
+//            one group per value s..s+L-3, colours per pullsAt() below
+//
+// THE COUPLING (why this is a chain, not two puzzles sharing a grid): cC's run
+// {s+L-3..s+L-1} exists ONLY because cD and cH both vacate the high end. Take
+// away either trap's short run and cC's tiles at those values need a group that
+// no longer has three colours. So the two traps are load-bearing for each other
+// through a single shared reorganisation of the high end — and, measured in the
+// harness, resolving one correctly leaves the other's obvious move still a
+// provable dead end (solveBag on the reduced bag), so no trap is defused by
+// progress on the other.
+//
+// L >= 6 (measured): at L=5 the three kColour supports land on s, s+1, s+2 —
+// three consecutive, a valid run on their own, breaking invariant (c) — and the
+// decoy append is not yet a dead end. Verified directly in composed.verify.ts.
+// ---------------------------------------------------------------------------
+
+/** L per difficulty for composed puzzles. Hard/extreme ONLY; L >= 6 (see cap). */
+function composedParamsFor(diff: Difficulty): { L: number } | null {
+  switch (diff) {
+    case 'hard': return { L: 6 }
+    case 'extreme': return { L: 7 }
+    default: return null
+  }
+}
+
+/** Superset of ArchetypeResult exposing everything the composition needs
+ * verified: both traps' tempting tiles, all three trap sets, and the correct
+ * short runs used to test cross-trap independence. */
+export interface ComposedBuild extends ArchetypeResult {
+  goal: Map<string, [number, number]>
+  /** One-ended decoy tile, colour cD. */
+  decoy: Tile
+  /** Two-ended red-herring extenders, colour cH. */
+  lowExtender: Tile
+  highExtender: Tile
+  /** Committing cD's obvious append (cD across s..s+L) strands the rest. */
+  trapDecoy: Tile[]
+  /** Committing cH's obvious HIGH append (cH across s..s+L) strands the rest. */
+  trapHigh: Tile[]
+  /** Committing cH's obvious LOW append (cH across s-1..s+L-1) strands the rest. */
+  trapLow: Tile[]
+  /** Extending cH at BOTH ends (cH across s-1..s+L) strands the rest. */
+  trapBoth: Tile[]
+  /** cD's genuine short run — "the decoy trap, correctly resolved". */
+  decoyResolved: Tile[]
+  /** cH's two genuine short runs — "the herring trap, correctly resolved". */
+  herringResolved: Tile[]
+  cDecoy: Tile['c']
+  cHerring: Tile['c']
+  cClean: Tile['c']
+  s: number
+  L: number
+}
+
+export function buildComposed(diff: Difficulty): ComposedBuild | null {
+  const p = composedParamsFor(diff)
+  if (!p) return null
+  return buildComposedAt(p.L)
+}
+
+/** L-parameterized composed core, exported for verification. L >= 6. */
+export function buildComposedAt(L: number): ComposedBuild | null {
+  if (L < 6) return null // L=5: k supports would be 3-consecutive, and decoy append survives
+
+  // Lo needs s-1 >= 1; D and H need s+L <= 13.
+  const s = randomInt(2, 13 - L)
+
+  const colors = shuffle(ALL_COLORS)
+  const boardColors = colors.slice(0, 3)
+  const kColor = colors[3]
+  const [cDecoy, cHerring, cClean] = shuffle(boardColors) as [Tile['c'], Tile['c'], Tile['c']]
+
+  // Goal has 4 runs + (L-2) groups = L+2 windows, one per row.
+  const rows = L + 2
+  const cols = L + 3
+  const grid: Grid = Array.from({ length: rows }, () => Array(cols).fill(null))
+  boardColors.forEach((col, i) => { for (let o = 0; o < L; o++) grid[i][1 + o] = { n: s + o, c: col } })
+
+  // (a) the board shown is already fully valid.
+  if (!validateGrid(grid)) return null
+
+  const decoy: Tile = { n: s + L, c: cDecoy }
+  const lowExtender: Tile = { n: s - 1, c: cHerring }
+  const highExtender: Tile = { n: s + L, c: cHerring }
+  const rack: Tile[] = [
+    decoy, lowExtender, highExtender,
+    { n: s, c: kColor }, { n: s + 1, c: kColor }, // cHerring's low run vacates these
+    { n: s + L - 3, c: kColor },                  // cClean's run vacates this one
+  ]
+
+  // (c) the rack is not a self-contained puzzle. This is the check that rejects
+  // L=5, where the three kColour supports would be consecutive.
+  if (formsValidSetAlone(rack)) return null
+
+  const boardTiles = grid.flat().filter((t): t is Tile => t !== null)
+  const allTiles = [...boardTiles, ...rack]
+
+  // (b) board + rack really is partitionable (all three tempting tiles have homes).
+  if (!solveBag(allTiles).solvable) return null
+
+  // (d) no way to empty the rack without relocating a board tile — exhaustive.
+  const search = existsNoRelocationWin(grid, rack)
+  if (search.win || search.exhausted) return null
+
+  // OBVIOUS x3: all three tempting tiles must read as plausible run-extensions.
+  if (obviousSpots(grid, decoy).length === 0) return null
+  if (obviousSpots(grid, lowExtender).length === 0) return null
+  if (obviousSpots(grid, highExtender).length === 0) return null
+
+  // TRAP x4: every obvious append, and the herring's extend-both, is a dead end.
+  const inSpan = (c: Tile['c'], lo: number, hi: number) => (t: Tile) => t.c === c && t.n >= lo && t.n <= hi
+  const isDecoyTrap = inSpan(cDecoy, s, s + L)
+  const isHighTrap = inSpan(cHerring, s, s + L)
+  const isLowTrap = inSpan(cHerring, s - 1, s + L - 1)
+  const isBothTrap = inSpan(cHerring, s - 1, s + L)
+  const dead = (pred: (t: Tile) => boolean) => !solveBag(allTiles.filter(t => !pred(t))).solvable
+  if (!dead(isDecoyTrap) || !dead(isHighTrap) || !dead(isLowTrap) || !dead(isBothTrap)) return null
+
+  // Deterministic hybrid goal — never planMixedGoal's factorial search.
+  const others = [cDecoy, cHerring, cClean]
+  const windows: WindowSpec[] = [
+    { type: 'run', color: cDecoy, start: s + L - 2, length: 3 },
+    { type: 'run', color: cHerring, start: s - 1, length: 3 },
+    { type: 'run', color: cHerring, start: s + L - 2, length: 3 },
+    { type: 'run', color: cClean, start: s + L - 3, length: 3 },
+  ]
+  for (let o = 0; o <= L - 3; o++) {
+    // Which board colour has been pulled into a run at this value decides who
+    // fills the group; kColour steps in exactly where one has been pulled.
+    let groupColors: Tile['c'][]
+    if (o === 0 || o === 1) groupColors = [cDecoy, cClean, kColor]      // cHerring in its low run
+    else if (o === L - 3) groupColors = [cDecoy, cHerring, kColor]      // cClean in its run
+    else groupColors = [...others]                                      // all three board colours
+    windows.push({ type: 'group', value: s + o, colors: groupColors })
+  }
+
+  const goal = new Map<string, [number, number]>()
+  windows.forEach((w, wi) => windowTiles(w).forEach((t, i) => goal.set(tileKey(t), [wi, 1 + i])))
+
+  // (e) par + witness for the combined hybrid goal, via the proven mixed core.
+  const res = mixedLayoutMoves(grid, rack, goal)
+  if (!res || !res.reachedGoal || !res.validGoal) return null
+
+  const span = (c: Tile['c'], lo: number, hi: number): Tile[] => {
+    const out: Tile[] = []
+    for (let n = lo; n <= hi; n++) out.push({ n, c })
+    return out
+  }
+  return {
+    grid, rack: shuffle(rack), allTiles, minMoves: res.moves, goal,
+    decoy, lowExtender, highExtender,
+    trapDecoy: allTiles.filter(isDecoyTrap),
+    trapHigh: allTiles.filter(isHighTrap),
+    trapLow: allTiles.filter(isLowTrap),
+    trapBoth: allTiles.filter(isBothTrap),
+    decoyResolved: span(cDecoy, s + L - 2, s + L),
+    herringResolved: [...span(cHerring, s - 1, s + 1), ...span(cHerring, s + L - 2, s + L)],
+    cDecoy, cHerring, cClean, s, L,
+  }
+}
