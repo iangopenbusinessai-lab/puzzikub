@@ -177,27 +177,81 @@ bug.
 in CLAUDE.md (easy 11 / medium 16 / hard 20 / decoy 22,25 / red herring 21,24 /
 composed 24,27).
 
-### Step 6 — `archetypes.ts` part 2: the cost model under duplicates ⚠️
-**Session size:** LARGE — expect to split further. **Risk: HIGHEST IN THE PLAN.**
-**Open-reasoning / plan-mode session. Do not schedule this as mechanical work.**
+### Step 6 — `archetypes.ts` part 2: the cost model under duplicates
+**Session size:** medium (was: LARGE). **Risk: moderate** (was: highest in the
+plan). **6a is DONE — see the verdict below.** 6b is mechanical; 6c is the real
+work and is unchanged.
 
-This is §0.4. `makeCostCtx` and the `cost = tiles − fixed − cycles` identity
-assume an injective tile→cell map. With duplicates, par is a **minimum over
-which copy lands in which cell**.
+#### 6a — RESOLVED: GO, but the fix is far cheaper than §0.4 feared
 
-Sub-steps, each independently testable:
-- **6a.** Prove or disprove, on small instances against move-BFS, that the two
-  pairings of a duplicate pair can actually give different costs. *If they can't,
-  the rest of Step 6 collapses to nothing — establish this first, it is cheap.*
-- **6b.** If they can: implement minimisation over pairings (2^d enumeration
-  first, since d is small in practice; min-cost matching only if 2^d proves too
-  slow — measure, don't assume).
-- **6c.** Re-prove the cost identity at the original scale: ≥265 instances
-  against unrestricted move-BFS, 0 mismatches, per the standard the m=1 model
-  was held to.
+A dedicated probe answered this against move-BFS ground truth. **Three findings,
+all measured, which together shrink this step substantially:**
 
-**Do not proceed to Step 7 until 6c produces real output.** Every par number the
-game displays depends on this.
+**Finding 1 — pairing genuinely matters. Naive pairing is wrong about half the
+time.** Over 150 BFS-confirmed instances: pairing spread > 0 in **121/150 (81%)**,
+and encounter-order pairing was strictly suboptimal in **76/150 (51%)**. A minimal
+worked counterexample:
+
+```
+start : [ . | 3a| 3a| . | 9a]        goal : [ 3a| 3a| . | 9a| . ]
+   pairing 0: cost=3 (fixed=0 cycles=0)   3a#0->c0 3a#1->c1
+   pairing 1: cost=2 (fixed=1 cycles=0)   3a#0->c1 3a#1->c0
+   naive picks 3; optimum is 2; BFS says 2
+```
+
+So the cost model **cannot** be fed an arbitrary pairing. That much of §0.4 was
+right.
+
+**Finding 2 — but the cost model itself is still CORRECT and needs no new
+theory.** On **150/150 BFS-confirmed instances, the true minimum equalled the
+minimum over pairings** — never less. `cost = total − fixed − cycles` remains
+exact per pairing; the only missing piece is a minimisation wrapper around it.
+There is no new cost identity to derive and nothing to re-prove about the
+functional-graph argument.
+
+**Finding 3 — 2^d enumeration is provably sufficient; min-cost matching is NOT
+needed.** The naive-vs-optimal error is **exactly bounded by `d`** (the number of
+duplicated (value,colour) pairs), measured over 400 instances per `d`:
+
+| d | max spread | max naive error | naive wrong |
+|---|---|---|---|
+| 1 | 1 | 1 | 40% |
+| 2 | 2 | 2 | 66% |
+| 3 | 3 | 3 | 78% |
+
+Each duplicate pair contributes at most 1 move, via one `fixed` or one `cycle`.
+Realistic constructions have **d = 1–2**, so the enumeration is 2–4 candidate
+pairings per goal — negligible next to the existing `L!` window search.
+
+**Bonus structural fact worth exploiting:** when **both** copies of a duplicate
+start in the RACK, the pairing is free — spread was 0 in **400/400** instances.
+Rack tiles have no cell, so they can be neither `fixed` nor on a cycle, making
+the two copies genuinely interchangeable. Only duplicates with **at least one
+copy already on the board** need enumerating, which will skip the work entirely
+for a large fraction of real puzzles.
+
+**Realistic-scale check** (the cut-point construction Step 11 actually wants —
+red 1-8 + duplicate 3 + duplicate 6, 10 tiles, 4 pairings, 200 layouts): spread >
+0 in **64%**, naive suboptimal in **22%**, max spread 2. So this is a *common,
+real* effect in exactly the puzzles this migration exists to build — not an
+adversarial curiosity. On the specific stacked goal the builders use, naive
+happened to be optimal; reorder the goal rows and it stops being. Do not rely on
+that accident.
+
+#### 6b — implement the minimisation (mechanical, small)
+
+Enumerate pairings only over duplicated descriptors with ≥1 copy on the board;
+take the min of the existing `cost()`. Do **not** implement min-cost matching —
+Finding 3 shows it is unnecessary at realistic `d`. Add a guard that falls back
+loudly if `d` ever exceeds ~6 rather than silently enumerating 64+ pairings.
+
+#### 6c — re-prove at the original scale (unchanged, still required)
+
+≥265 instances against unrestricted move-BFS, 0 mismatches, per the standard the
+m=1 model was held to. **Do not proceed to Step 7 until 6c produces real
+output** — every par number the game displays depends on this. Note 6a's 150
+instances are small-grid by necessity (BFS is exponential); 6c must cover
+realistic tile counts by the same sampling approach the m=1 model used.
 
 ### Step 7 — retire `solveBag`, switch builders to `solveBagM2`
 **Session size:** small-medium. **Risk:** low, given Steps 2 and 6.
