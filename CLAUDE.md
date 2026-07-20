@@ -121,6 +121,39 @@ must touch). Note `npx tsc --noEmit` alone is a no-op here: root
 `tsconfig.json` has `files: []` + project references, so the real
 typecheck is `tsc -b` / `tsc -p tsconfig.app.json`.
 
+**m=2 MIGRATION — Step 2 DONE (solver.ts: `solveBagM2` added alongside
+`solveBag`).** `solveBag` is UNTOUCHED; existing archetypes keep calling it
+until Step 7. `solveBagM2` is the m=2 partition oracle: per-colour state is
+an unordered pair of saturating run lengths (10 states/colour), at each
+value 0-2 groups are chosen then the remaining copies extend runs; rejects
+>`TILE_COPIES` copies up front; `assignment` is keyed by **`tile.id`** (the
+old `${n}_${c}` key would collide on the two copies of a duplicate).
+
+*Verification (real executed output, temp probe since deleted):*
+- Hand-traced: two simultaneous same-colour runs ✓; only-one-of-two-copies-
+  can-extend (red 1-8 + dup2 → unsolvable) ✓; owner red 1-8 + dup3 + dup6 →
+  **solvable** ✓; two groups at one value ✓.
+- 28-pair cut-point sweep reproduces exactly the §0.3 pairs `(2,3)(3,4)(3,5)
+  (3,6)(4,5)(4,6)(5,6)(6,7)`, 0 oracle mismatches.
+- Differential fuzz vs an independent brute-force oracle: **11,500 instances
+  (7,478 duplicate-bearing), 0 mismatches.**
+- `assignment`: on 333 solvable bags, every tile id present (both copies of
+  duplicates) and re-partitioning by label passes isValidRun/isValidGroup.
+- Timing: **0.0097 ms/call on the full 104-tile m=2 universe, 0.0043 ms on a
+  typical bag** — in the prototype's 0.002-0.004 ms range. NOTE: the first
+  implementation ran ~40x slower (0.15 ms); the cause was re-enumerating the
+  bag-independent group multisets per call. Fix: precompute them once in a
+  module-level 81-entry table (`M2_CHOICES_BY_COUNT`), plus integer-encoded
+  state (pair-index per colour, numeric memo keys) so the DP allocates
+  nothing per node.
+
+*tsc after Step 2: still 131 errors, UNCHANGED.* The 2 pre-existing solver.ts
+errors are inside `solveBag`'s `reconstructAssignment` (`tileKey({n,c})`,
+lines 124/127) — Step 2 must NOT modify `solveBag`, so they correctly remain
+(they clear in a later step / Step 7 retirement). `solveBagM2` itself added
+zero new errors. (The Step 2 brief anticipated a drop of 2 here; that was a
+misread — those 2 errors are `solveBag`'s, not something Step 2 resolves.)
+
 ---
 
 ## ENGINE ARCHITECTURE (src/lib/) — ground truth definitions
