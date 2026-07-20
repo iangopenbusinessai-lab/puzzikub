@@ -92,6 +92,35 @@ expressed by the types themselves: `Puzzle.grid` is the starting board
 — fully solved, NO gaps, ever; `Puzzle.optimalMoves` is computed from
 construction, not searched.
 
+**m=2 MIGRATION — Step 1 DONE (types.ts only).** `Tile` now carries a
+stable `id: string` in addition to `n`/`c`; `{n,c}` alone can't tell the
+two m=2 copies of a (value,colour) pair apart. Two new exports in
+`types.ts`: `TILE_COPIES = 2` (the copy count, named in one place, not
+scattered as literal 2s) and `makeTile(n, c, copy = 0)` which mints tiles.
+
+**ID-SCHEME DECISION (recorded per MIGRATION_M2.md Step 1): STRUCTURED,
+not opaque.** The id is `` `${n}_${c}_${copy}` `` (e.g. `5_r_0`), chosen
+over a uuid/global-counter because it (1) stays readable in verify-harness
+output and (2) is a PURE function of `(n, c, copy)`, so it survives a JSON
+round-trip with no remap table and lets Step 8's legacy-save migration
+re-mint ids deterministically from `(n, c, occurrenceIndex)`.
+**Signature note / deviation justified:** the doc wrote `makeTile(n, c)`,
+but a pure structured id genuinely needs the copy index as input —
+otherwise disambiguating the second copy requires hidden global state,
+which is opaque-by-another-name and breaks per-puzzle scoping and the
+round-trip purity the scheme exists for. So `copy` is an explicit third
+argument defaulting to `0`, leaving `makeTile(n, c)` callable exactly as
+the doc writes it (m=1-shaped construction only ever needs copy 0).
+
+Step 1 is intentionally types-only: the rest of the codebase does NOT
+compile until later steps swap `{n,c}` literals for `makeTile`. `tsc -p
+tsconfig.app.json` reports 131 errors, ALL of them missing-`id`
+construction sites (TS2741/TS2345/TS2322), zero logic errors — that error
+list IS the Step 1 deliverable (it enumerates every call site later steps
+must touch). Note `npx tsc --noEmit` alone is a no-op here: root
+`tsconfig.json` has `files: []` + project references, so the real
+typecheck is `tsc -b` / `tsc -p tsconfig.app.json`.
+
 ---
 
 ## ENGINE ARCHITECTURE (src/lib/) — ground truth definitions
