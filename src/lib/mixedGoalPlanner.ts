@@ -385,6 +385,164 @@ export function mixedLayoutMoves(currentGrid: Grid, rack: Tile[], goal: Map<stri
 }
 
 // ---------------------------------------------------------------------------
+// STEP 6b — PAIRING MINIMISATION.
+//
+// `bindWindowTiles` yields ONE valid binding (ascending-id default). Under m=2
+// that choice is not free: when a (value,colour) has two copies and one already
+// sits on the board, swapping which copy fills which window slot can change the
+// move count. MIGRATION_M2.md §6a measured this against move-BFS and settled the
+// design — treated here as ground truth, not re-derived:
+//
+//   Finding 1  pairing matters: spread > 0 in 121/150, naive strictly suboptimal
+//              in 76/150. So an arbitrary binding cannot be trusted.
+//   Finding 2  the cost model itself is unchanged and exact PER BINDING; the only
+//              missing piece is a minimisation wrapper. That is this function.
+//   Finding 3  plain 2^d enumeration suffices — the naive-vs-optimal error is
+//              bounded by d, and realistic constructions have d = 1-2 (2-4
+//              candidates). Min-cost bipartite matching is deliberately NOT built.
+//   Bonus      when BOTH copies start in the RACK the pairing is provably free
+//              (spread 0 in 400/400): rack tiles have no cell, so they can be
+//              neither `fixed` nor on a cycle, making the copies interchangeable.
+//              Those labels are skipped outright rather than enumerated.
+//
+// Candidate 0 is always the ascending-id default, so with d = 0 there is exactly
+// ONE candidate and an empty `pinned` — byte-identical to calling
+// `bindWindowTiles(windows, bag)` directly. That is the structural reason an
+// m=1-shaped build (every existing archetype) cannot change par by adopting this.
+// ---------------------------------------------------------------------------
+
+/** Enumeration is 2^d. d is 1-2 in any realistic construction; anything past this
+ * means the caller built something the migration never analysed, so fail loudly
+ * rather than quietly burning 64+ candidate layouts. */
+export const MAX_ENUMERATED_DUPLICATES = 6
+
+/** Thrown (never returned) when d exceeds MAX_ENUMERATED_DUPLICATES — a loud
+ * failure is the point: silently degrading to a 128-candidate search would hide
+ * a construction bug behind a performance cliff. */
+export class PairingBlowupError extends Error {
+  // Declared explicitly rather than as a constructor parameter property:
+  // tsconfig sets `erasableSyntaxOnly`, which forbids that form.
+  duplicates: string[]
+  constructor(duplicates: string[]) {
+    super(
+      `pairing enumeration refused: ${duplicates.length} board-touching duplicate labels ` +
+      `(max ${MAX_ENUMERATED_DUPLICATES}) would need 2^${duplicates.length} candidate bindings. ` +
+      `labels=[${duplicates.join(', ')}]`,
+    )
+    this.name = 'PairingBlowupError'
+    this.duplicates = duplicates
+  }
+}
+
+export interface MinPairingResult extends MoveResult {
+  /** The winning binding's goal map (tile id → [row, col]). */
+  goal: Map<string, [number, number]>
+  /** The winning binding, per window, in column order. */
+  bound: Tile[][]
+  /** Candidate bindings actually scored. 1 when nothing needed enumerating. */
+  candidates: number
+  /** Duplicate labels enumerated (≥1 copy on the board). */
+  enumerated: string[]
+  /** Duplicate labels skipped as provably free (both copies in the rack, §6a). */
+  skippedRackOnly: string[]
+  /** Best − worst over the candidates scored. 0 when the pairing did not matter. */
+  spread: number
+}
+
+/**
+ * Bind `windows` to the concrete grid+rack tiles and return the CHEAPEST binding.
+ *
+ * `cellOf(windowIndex, slotIndex)` places the goal — the caller owns the layout;
+ * this function only chooses which COPY fills which slot.
+ *
+ * Selection rule: among candidates that produce a real, reachable, valid goal,
+ * the minimum `moves` wins; ties go to the earliest candidate, which is the
+ * ascending-id default. If no candidate reaches a valid goal, the default's
+ * result is returned unchanged so the caller's existing `reachedGoal`/`validGoal`
+ * rejection fires exactly as it did before this wrapper existed.
+ *
+ * @throws PairingBlowupError when d > MAX_ENUMERATED_DUPLICATES.
+ */
+export function bindMinCostGoal(
+  windows: WindowSpec[],
+  currentGrid: Grid,
+  rack: Tile[],
+  cellOf: (windowIndex: number, slotIndex: number) => [number, number],
+): MinPairingResult | null {
+  const boardTiles = currentGrid.flat().filter((t): t is Tile => t !== null)
+  const bag: Tile[] = [...boardTiles, ...rack]
+
+  // Group the bag by (value,colour); ids ascending, matching bindWindowTiles.
+  const byLabel = new Map<string, Tile[]>()
+  for (const t of bag) {
+    const arr = byLabel.get(labelKey(t))
+    if (arr) arr.push(t)
+    else byLabel.set(labelKey(t), [t])
+  }
+  for (const arr of byLabel.values()) arr.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+
+  const onBoard = new Set(boardTiles.map(t => t.id))
+  const enumerated: string[] = []
+  const skippedRackOnly: string[] = []
+  // Sorted label order keeps candidate ordering deterministic across runs.
+  for (const label of [...byLabel.keys()].sort()) {
+    const copies = byLabel.get(label)!
+    if (copies.length < 2) continue
+    if (copies.some(t => onBoard.has(t.id))) enumerated.push(label)
+    else skippedRackOnly.push(label) // §6a bonus fact: provably free, do not enumerate
+  }
+
+  if (enumerated.length > MAX_ENUMERATED_DUPLICATES) throw new PairingBlowupError(enumerated)
+
+  // Cartesian product of each enumerated label's copy orderings. permutations()
+  // emits the identity first, so candidate 0 is the ascending-id default.
+  let pinnedCandidates: Map<string, string[]>[] = [new Map()]
+  for (const label of enumerated) {
+    const orders = permutations(byLabel.get(label)!.map(t => t.id))
+    const grown: Map<string, string[]>[] = []
+    for (const base of pinnedCandidates)
+      for (const order of orders) {
+        const next = new Map(base)
+        next.set(label, order)
+        grown.push(next)
+      }
+    pinnedCandidates = grown
+  }
+
+  let best: { res: MoveResult; goal: Map<string, [number, number]>; bound: Tile[][] } | null = null
+  let fallback: { res: MoveResult; goal: Map<string, [number, number]>; bound: Tile[][] } | null = null
+  let bestMoves = Infinity
+  let worstMoves = -Infinity
+  let scored = 0
+
+  for (const pinned of pinnedCandidates) {
+    const bound = bindWindowTiles(windows, bag, pinned.size > 0 ? pinned : undefined)
+    if (!bound) continue
+    const goal = new Map<string, [number, number]>()
+    bound.forEach((row, wi) => row.forEach((t, i) => goal.set(tileKey(t), cellOf(wi, i))))
+    const res = mixedLayoutMoves(currentGrid, rack, goal)
+    if (!res) continue
+    if (!fallback) fallback = { res, goal, bound }
+    if (!res.reachedGoal || !res.validGoal) continue
+    scored++
+    if (res.moves > worstMoves) worstMoves = res.moves
+    if (res.moves < bestMoves) { bestMoves = res.moves; best = { res, goal, bound } }
+  }
+
+  const chosen = best ?? fallback
+  if (!chosen) return null
+  return {
+    ...chosen.res,
+    goal: chosen.goal,
+    bound: chosen.bound,
+    candidates: pinnedCandidates.length,
+    enumerated,
+    skippedRackOnly,
+    spread: scored > 0 ? worstMoves - bestMoves : 0,
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Convenience optimizer: given window SHAPES (not placements), search placements
 // (which row each window owns, its colStart) for the minimum-move layout.
 //

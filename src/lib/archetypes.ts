@@ -1,7 +1,7 @@
 import { type Tile, type Grid, type Difficulty, makeTile } from '../types'
 import { solveBag } from './solver'
 import { isValidRun, isValidGroup, validateGrid } from './validator'
-import { type WindowSpec, bindWindowTiles, mixedLayoutMoves } from './mixedGoalPlanner'
+import { type WindowSpec, bindMinCostGoal } from './mixedGoalPlanner'
 
 /** The two directions of the same Latin-rectangle duality. */
 export type ArchetypeType = 'groups-to-runs' | 'runs-to-groups'
@@ -977,18 +977,14 @@ export function buildDecoyAt(L: number): DecoyBuild | null {
     windows.push({ type: 'group', value: s + o, colors: groupColors })
   }
 
-  // Bind each window slot to the CONCRETE tile already in grid+rack (never a
-  // freshly-minted one) so the goal is keyed by ids that actually exist. Here the
-  // binding is unambiguous — exactly one tile per (value, colour) — but going
-  // through the resolver is what keeps that an asserted fact rather than a hope.
-  const bound = bindWindowTiles(windows, allTiles)
-  if (!bound) return null
-  const goal = new Map<string, [number, number]>()
-  bound.forEach((row, wi) => row.forEach((t, i) => goal.set(tileKey(t), [wi, 1 + i])))
-
   // (e) par + witness for the hybrid goal, via the proven mixed planner core.
-  const res = mixedLayoutMoves(grid, rack, goal)
+  // Binds each window slot to the CONCRETE tile already in grid+rack (never a
+  // freshly-minted one) and takes the CHEAPEST copy-pairing (Step 6b). This build
+  // is m=1-shaped — one tile per (value,colour) — so there is nothing to enumerate
+  // and exactly one candidate; the wrapper is here so that stays an asserted fact.
+  const res = bindMinCostGoal(windows, grid, rack, (wi, i) => [wi, 1 + i])
   if (!res || !res.reachedGoal || !res.validGoal) return null
+  const goal = res.goal
 
   return { grid, rack: shuffle(rack), allTiles, minMoves: res.moves, goal, decoy, runExtension, s, L }
 }
@@ -1122,16 +1118,12 @@ export function buildRedHerringAt(L: number): RedHerringBuild | null {
     windows.push({ type: 'group', value: s + o, colors: pulled ? [...others, kColor] : [c, ...others] })
   }
 
-  // Bind window slots to the concrete grid+rack tiles — see buildDecoyAt.
-  const bound = bindWindowTiles(windows, allTiles)
-  if (!bound) return null
-  const goal = new Map<string, [number, number]>()
-  bound.forEach((row, wi) => row.forEach((t, i) => goal.set(tileKey(t), [wi, 1 + i])))
-
   // (e) + GENUINE HOME ×2: both extenders sit in the two short runs; the whole
-  // hybrid reaches a validateGrid win with an exact par + witness.
-  const res = mixedLayoutMoves(grid, rack, goal)
+  // hybrid reaches a validateGrid win with an exact par + witness. Concrete-tile
+  // binding + cheapest copy-pairing — see buildDecoyAt.
+  const res = bindMinCostGoal(windows, grid, rack, (wi, i) => [wi, 1 + i])
   if (!res || !res.reachedGoal || !res.validGoal) return null
+  const goal = res.goal
 
   return { grid, rack: shuffle(rack), allTiles, minMoves: res.moves, goal, lowExtender, highExtender, trapLow, trapHigh, s, L }
 }
@@ -1309,15 +1301,11 @@ export function buildComposedAt(L: number): ComposedBuild | null {
     windows.push({ type: 'group', value: s + o, colors: groupColors })
   }
 
-  // Bind window slots to the concrete grid+rack tiles — see buildDecoyAt.
-  const bound = bindWindowTiles(windows, allTiles)
-  if (!bound) return null
-  const goal = new Map<string, [number, number]>()
-  bound.forEach((row, wi) => row.forEach((t, i) => goal.set(tileKey(t), [wi, 1 + i])))
-
   // (e) par + witness for the combined hybrid goal, via the proven mixed core.
-  const res = mixedLayoutMoves(grid, rack, goal)
+  // Concrete-tile binding + cheapest copy-pairing — see buildDecoyAt.
+  const res = bindMinCostGoal(windows, grid, rack, (wi, i) => [wi, 1 + i])
   if (!res || !res.reachedGoal || !res.validGoal) return null
+  const goal = res.goal
 
   // Select the CONCRETE tiles from the bag rather than minting fresh ones, so the
   // reported spans carry the same ids (and objects) the grid/rack hold.
