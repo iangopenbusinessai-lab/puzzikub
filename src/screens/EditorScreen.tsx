@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import type { Tile, Puzzle, Screen } from '../types'
-import { NUM_COLOR } from '../types'
+import type { Tile, TileSpec, Puzzle, Screen } from '../types'
+import { NUM_COLOR, TILE_COPIES } from '../types'
 import { useEditor } from '../hooks/useEditor'
 import { NavBar } from '../components/NavBar'
 import { TilePicker } from '../components/TilePicker'
@@ -17,7 +17,7 @@ interface Props {
 interface PickerState {
   position: { x: number; y: number }
   initialTile?: Tile
-  onConfirm: (tile: Tile) => void
+  onConfirm: (spec: TileSpec) => void
 }
 
 const inputStyle: React.CSSProperties = {
@@ -76,7 +76,14 @@ export function EditorScreen({ onSave, activeScreen, onNav, onShowTutorial, onSh
   const cols = grid[0]?.length ?? 0
   const gridH = rows * 64 - 6  // rows * (58 + 6) - 6
 
-  function openPicker(e: React.MouseEvent, initialTile: Tile | undefined, onConfirm: (t: Tile) => void) {
+  // m=2 Step 8: the editor mutators can now REFUSE (a third copy of a
+  // (value,colour) would make the puzzle unsolvable by construction). Route every
+  // one through here so a refusal is shown rather than silently swallowed.
+  function apply(ok: boolean) {
+    setSaveError(ok ? '' : `Only ${TILE_COPIES} copies of any tile are allowed.`)
+  }
+
+  function openPicker(e: React.MouseEvent, initialTile: Tile | undefined, onConfirm: (spec: TileSpec) => void) {
     e.stopPropagation()
     setPicker({ position: { x: e.clientX, y: e.clientY }, initialTile, onConfirm })
   }
@@ -202,7 +209,7 @@ export function EditorScreen({ onSave, activeScreen, onNav, onShowTutorial, onSh
                     return (
                       <div
                         key={`${ri}-${ci}`}
-                        onClick={e => openPicker(e, tile, t => { setTileAt(ri, ci, t); setPicker(null) })}
+                        onClick={e => openPicker(e, tile, t => { apply(setTileAt(ri, ci, t)); setPicker(null) })}
                         style={{
                           position: 'relative',
                           width: 46,
@@ -231,7 +238,7 @@ export function EditorScreen({ onSave, activeScreen, onNav, onShowTutorial, onSh
                   return (
                     <div
                       key={`${ri}-${ci}`}
-                      onClick={e => openPicker(e, undefined, t => { setTileAt(ri, ci, t); setPicker(null) })}
+                      onClick={e => openPicker(e, undefined, t => { apply(setTileAt(ri, ci, t)); setPicker(null) })}
                       style={{
                         width: 46,
                         height: 58,
@@ -300,7 +307,7 @@ export function EditorScreen({ onSave, activeScreen, onNav, onShowTutorial, onSh
             {rack.map((tile, i) => (
               <div
                 key={i}
-                onClick={e => openPicker(e, tile, t => { updateRackTile(i, t); setPicker(null) })}
+                onClick={e => openPicker(e, tile, t => { apply(updateRackTile(i, t)); setPicker(null) })}
                 style={{
                   position: 'relative',
                   width: 46,
@@ -328,7 +335,7 @@ export function EditorScreen({ onSave, activeScreen, onNav, onShowTutorial, onSh
 
             {/* + add tile */}
             <div
-              onClick={e => openPicker(e, undefined, t => { addRackTile(t); setPicker(null) })}
+              onClick={e => openPicker(e, undefined, t => { apply(addRackTile(t)); setPicker(null) })}
               style={{
                 width: 46,
                 height: 58,

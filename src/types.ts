@@ -35,6 +35,15 @@ export function makeTile(n: number, c: Tile['c'], copy = 0): Tile {
   return { n, c, id: `${n}_${c}_${copy}` }
 }
 
+/**
+ * A tile the user has *described* but which has no identity yet — what the tile
+ * picker produces. Only `useEditor` can turn one into a `Tile`, because the copy
+ * index depends on how many copies of that (value, colour) the puzzle being
+ * edited already holds. Keeping the two types distinct is what stops a UI
+ * component from minting a duplicate id it has no way to scope correctly.
+ */
+export type TileSpec = Pick<Tile, 'n' | 'c'>
+
 export const NUM_COLOR: Record<Tile['c'], string> = {
   r: '#A32D2D',
   b: '#185FA5',

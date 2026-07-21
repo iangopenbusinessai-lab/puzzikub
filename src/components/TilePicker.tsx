@@ -1,11 +1,13 @@
 import { useState, useRef, useEffect } from 'react'
-import type { Tile } from '../types'
+import type { Tile, TileSpec } from '../types'
 import { NUM_COLOR } from '../types'
 
 interface Props {
   initialTile?: Tile
   position: { x: number; y: number }
-  onConfirm: (tile: Tile) => void
+  /** Emits a SPEC, not a Tile: the picker cannot know which copy index is free
+   * in the puzzle being edited, so `useEditor` mints the id (m=2 Step 8). */
+  onConfirm: (spec: TileSpec) => void
   onCancel: () => void
 }
 
