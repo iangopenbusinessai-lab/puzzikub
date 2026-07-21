@@ -311,6 +311,97 @@ no other file's count moved. The remaining 24 are all later-step construction
 sites: `storage.ts` 21 (Step 8 legacy-save migration), `solver.ts` 2 (inside
 `solveBag`'s `reconstructAssignment` — retired in Step 7), `TilePicker.tsx` 1.
 
+**⚠️ BUILD IS CURRENTLY BROKEN — PRE-EXISTING SINCE STEP 1, NOT CAUSED BY STEP 8.**
+`npm run build` is `tsc -b && vite build`, and `tsc -b` fails on the **2 remaining
+`solver.ts` errors** (`tileKey({n,c})` at lines 142/145 inside `solveBag`'s
+`reconstructAssignment`). **So `npm run deploy` cannot succeed and the live site
+cannot be updated until these are fixed.** They are a ~2-line fix
+(`tileKey({n,c})` → `tileKey(makeTile(v, c))`), deliberately NOT done in Step 8 —
+out of scope, and CLAUDE.md calls for a dedicated session for anything touching
+`solver.ts`. **Do this before Step 12 / any deploy.**
+
+**m=2 MIGRATION — Step 8 CLOSED (`storage.ts` + editor). Legacy saves migrate
+safely; proven against reconstructed-real data.** Harness:
+`src/lib/storage.verify.ts` (`npx tsx src/lib/storage.verify.ts`, **37 passed /
+0 failed**).
+
+***THE MIGRATION STRATEGY — a pure function, which is exactly what Step 1's
+STRUCTURED id scheme was chosen for.*** `id = ${n}_${c}_${copyIndex}`, where
+`copyIndex` is the tile's **occurrence position among same-(n,c) tiles within its
+own puzzle**, scanned **grid row-major, then rack**. Same blob in, same ids out —
+no remap table, no counter, no dependence on load order. `loadLibrary()` runs it;
+`migrateLibrary()` is exported so it is testable without a browser.
+
+*Three rules, each chosen because the alternative loses real user data:*
+1. **A tile that already has an id is left completely alone** — so a
+   post-migration save round-trips byte-identically. Re-minting would renumber
+   copies and silently change which tile is which.
+2. **Nothing is ever dropped.** Legacy data with MORE than `TILE_COPIES` of one
+   (n,c) — possible, the old editor had no cap — still gets every tile a unique id
+   (copy 2, 3, …). The condition is **reported** via `stats.countOverCap`, not
+   silently "fixed" by deleting the extras.
+3. **Mixed blobs work.** Minting skips copy indices already claimed in that puzzle,
+   so a migrated tile can never collide with a surviving one.
+
+*Two safety decisions worth not undoing:*
+- **`loadLibrary` does NOT write the migrated result back.** Migration is
+  deterministic and idempotent, so re-running costs nothing — and leaving the
+  original blob untouched means a bug in the migrator **cannot destroy the saved
+  library**. Verified: the stored blob is byte-unchanged after a load.
+- **A single damaged entry no longer costs the whole library.** It is skipped
+  (counted in `puzzlesSkipped`) and the rest load; seeds are only used when the
+  blob yields nothing at all.
+
+*On test data — stated plainly:* a session cannot read a browser profile's
+localStorage, so the legacy blobs are **synthetic but not guessed** — the
+pre-migration `Tile` was exactly `{n, c}` and the old `SEED_PUZZLES` literal is
+reproduced verbatim, both read from **git at `aeafc4a`** (the commit before Step 1
+added `id`). **The strongest evidence is the reconstructed-real test:**
+```
+100 REAL generated puzzles (25/difficulty, all archetype layers),
+ids stripped — exactly what an old save of them looked like — then migrated:
+   byte-identical to the original                : 100/100
+   passes the full fresh-puzzle validity suite   : 100/100
+   (validateGrid · no invalid cells · solveBagM2 · rack-alone ·
+    no-relocation-win · not trivial · par > 0)
+```
+An m=1-shaped puzzle is all copy 0, so occurrence-index minting **must** reproduce
+the original ids exactly — which makes this an exact-identity test, not a
+plausibility check. Also verified: duplicate-bearing legacy blob numbers copies by
+occurrence (`5_r_0,7_b_0,7_b_1,9_a_0,5_r_1,9_a_1`); fresh puzzles round-trip
+save→load **40/40 unchanged with 0 tiles re-minted**; migration idempotent; corrupt
+JSON falls back to seeds rather than throwing.
+
+*The editor (`useEditor` + new `src/lib/editorRules.ts`):*
+- The pure rules (`usedIds` / `mintTile`) live in **`src/lib/`, not the hook** —
+  the cap is game logic per the architecture rule, and this makes it directly
+  testable rather than only reachable through a rendered React hook.
+- `setTileAt` / `addRackTile` / `updateRackTile` take a **`TileSpec`**, mint the id
+  themselves (only they can — copy index is puzzle-scoped), and **return a
+  boolean**: `false` means the cap refused it. `EditorScreen` surfaces that
+  ("Only 2 copies of any tile are allowed."), never swallows it.
+- New `types.ts` **`TileSpec = Pick<Tile,'n'|'c'>`**. `TilePicker` emits a spec, not
+  a `Tile` — a component cannot scope a copy index correctly, and the type now
+  stops it from trying. **Do not "simplify" this back to passing a `Tile`.**
+- **Cap tested behaviourally, not asserted:** `add 5r ×3 → true, true, FALSE`, rack
+  left holding exactly `5_r_0` and `5_r_1`; the cap spans grid+rack together;
+  overwriting a slot is not counted as a new copy; unrelated tiles unaffected. And
+  `solveBagM2` confirmed to reject an over-cap bag outright — which is *why* the
+  cap exists (such a puzzle is unsolvable by construction).
+
+*Existing suite, unchanged:* `verifyEngine` **52/0** + invariants (a)-(d) all
+passed · `decoy` **23/0** · `redherring` **25/0** · `composed` **32/0** ·
+`mixedGoalPlanner` **37/0** · `pairingMin` **31/0**.
+
+*tsc: **24 → 2 (−22)**.* Diff-read: `storage.ts`'s 21 and `TilePicker.tsx`'s 1 both
+cleared — exactly the Step 1 error list's entries for those files. The 2 remaining
+are `solver.ts`'s (see the build warning above).
+
+**Still open for Step 9 (UI):** `Rack.tsx` still uses `key={i}`; the
+`dimmed={draggingRackIdx === i}` prop **must stay positional** — switching it to a
+value+colour comparison is precisely the bug that would make dragging one copy of a
+duplicate dim the other.
+
 **m=2 MIGRATION — Step 7 CLOSED (builders on `solveBagM2`). `solveBag` is NOT
 removed — see its retirement status below; this is the one place Step 7 deviates
 from what an earlier note predicted.**
