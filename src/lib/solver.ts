@@ -1,5 +1,5 @@
 import type { Tile } from '../types'
-import { TILE_COPIES } from '../types'
+import { TILE_COPIES, makeTile } from '../types'
 
 export interface SolveResult {
   solvable: boolean
@@ -40,9 +40,12 @@ export const tileKey = (t: Tile): string => `${t.n}_${t.c}`
  * note Step 11's duplicate-bearing archetype cannot use it at all, since m=1
  * `solveBag` rejects any duplicate outright.
  *
- * Its two known `tsc` errors (`tileKey({n,c})` in `reconstructAssignment`) are
- * therefore still open; CLAUDE.md's Step 2 note predicted Step 7 would clear
- * them by deletion, which turned out to be wrong.
+ * Its two long-standing `tsc` errors (`tileKey({n,c})` in `reconstructAssignment`)
+ * were FIXED in a standalone build-fix session — they had blocked `tsc -b`, and
+ * therefore `npm run build` / `npm run deploy`, ever since Step 1 added `Tile.id`.
+ * The fix was type-level only (mint via `makeTile`); the DP below is untouched.
+ * CLAUDE.md's Step 2 note had predicted Step 7 would clear them by deleting this
+ * function, which turned out to be wrong — it survives as the harness oracle.
  */
 export function solveBag(tiles: Tile[]): SolveResult {
   // An empty tile universe is never a valid puzzle.
@@ -138,11 +141,17 @@ export function solveBag(tiles: Tile[]): SolveResult {
       for (let i = 0; i < 4; i++) {
         const c = COLORS[i]
         if (!present.has(c)) continue
+        // `makeTile(v, c)` rather than a bare `{ n: v, c }` literal purely to
+        // satisfy `Tile`'s `id` requirement (Step 1). This is a TYPE-level fix
+        // only: `tileKey` reads `n` and `c` and ignores `id`, so the key string
+        // is byte-identical to what the literal produced. Nothing about which
+        // tiles land in a run vs a group changes here, and this whole function
+        // runs only AFTER dp() has already decided `solvable`.
         if (groupSet.has(c)) {
-          assignment.set(tileKey({ n: v, c }), 'group')
+          assignment.set(tileKey(makeTile(v, c)), 'group')
           newRuns[i] = 0
         } else {
-          assignment.set(tileKey({ n: v, c }), 'run')
+          assignment.set(tileKey(makeTile(v, c)), 'run')
           newRuns[i] = runs[i] < 3 ? runs[i] + 1 : 3
         }
       }
