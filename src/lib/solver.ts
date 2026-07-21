@@ -26,6 +26,24 @@ interface MemoEntry {
 /** Key used in the returned assignment map. Unique because m = 1 copy. */
 export const tileKey = (t: Tile): string => `${t.n}_${t.c}`
 
+/**
+ * The m=1 partition oracle. **RETIREMENT STATUS after m=2 migration Step 7: NOT
+ * removed, and deliberately so.** No production code calls it any more — every
+ * builder call site in `archetypes.ts` moved to `solveBagM2` in Step 7 — but it
+ * is still imported by four VERIFICATION harnesses (`verifyEngine.ts`,
+ * `decoy.verify.ts`, `redherring.verify.ts`, `composed.verify.ts`).
+ *
+ * That is the reason to keep it, not an oversight: the existing archetypes emit
+ * m=1-shaped bags, a strict subset of what `solveBagM2` handles, so builders on
+ * `solveBagM2` checked by harnesses on `solveBag` is a real differential test.
+ * Retire this only when a harness no longer needs an independent oracle — and
+ * note Step 11's duplicate-bearing archetype cannot use it at all, since m=1
+ * `solveBag` rejects any duplicate outright.
+ *
+ * Its two known `tsc` errors (`tileKey({n,c})` in `reconstructAssignment`) are
+ * therefore still open; CLAUDE.md's Step 2 note predicted Step 7 would clear
+ * them by deletion, which turned out to be wrong.
+ */
 export function solveBag(tiles: Tile[]): SolveResult {
   // An empty tile universe is never a valid puzzle.
   if (tiles.length === 0) return { solvable: false }

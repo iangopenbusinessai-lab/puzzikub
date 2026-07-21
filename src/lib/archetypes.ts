@@ -1,5 +1,12 @@
 import { type Tile, type Grid, type Difficulty, makeTile } from '../types'
-import { solveBag } from './solver'
+// m=2 migration Step 7: every builder-side partition oracle call is solveBagM2.
+// The m=1 `solveBag` is NOT deleted — it is still the independent oracle the
+// verification harnesses check these builds against (verifyEngine, decoy,
+// redherring, composed). Keeping the builders and the verifiers on DIFFERENT
+// solvers is the point: an m=1-shaped bag is a strict subset of what solveBagM2
+// handles, so the two must agree on every puzzle this file emits, and the
+// harnesses would catch it if they ever didn't.
+import { solveBagM2 } from './solver'
 import { isValidRun, isValidGroup, validateGrid } from './validator'
 import { type WindowSpec, bindMinCostGoal } from './mixedGoalPlanner'
 
@@ -674,7 +681,7 @@ export function buildGroupsToRuns(diff: Difficulty): ArchetypeResult | null {
   // (b) board + rack really is partitionable.
   const boardTiles = grid.flat().filter((t): t is Tile => t !== null)
   const allTiles = [...boardTiles, ...rack]
-  if (!solveBag(allTiles).solvable) return null
+  if (!solveBagM2(allTiles).solvable) return null
 
   // (d) the obvious move must fail — exhaustively, not heuristically.
   const search = existsNoRelocationWin(grid, rack)
@@ -821,7 +828,7 @@ export function buildRunsToGroupsAt(L: number, rackSize: number): ArchetypeResul
   // (b) board + rack really is partitionable.
   const boardTiles = grid.flat().filter((t): t is Tile => t !== null)
   const allTiles = [...boardTiles, ...rack]
-  if (!solveBag(allTiles).solvable) return null
+  if (!solveBagM2(allTiles).solvable) return null
 
   // (d) the obvious move must fail — exhaustively, not heuristically.
   const search = existsNoRelocationWin(grid, rack)
@@ -841,7 +848,7 @@ export function buildRunsToGroupsAt(L: number, rackSize: number): ArchetypeResul
 // carries ONE tempting decoy tile D = {s+L, c} in a *board* colour c: it visibly
 // extends c's run (obviousSpots recognises it), so the "obvious" move is to drop
 // it on the run's high end. That move is a DEAD END — committing D to the run
-// strands the rest (verified: solveBag on the remainder is UNSOLVABLE).
+// strands the rest (verified: solveBagM2 on the remainder is UNSOLVABLE).
 //
 // D's genuine, non-obvious home is a HYBRID layout the pure planners cannot
 // represent: a short run {s+L-2, s+L-1, s+L} of colour c, which pulls c out of
@@ -952,7 +959,7 @@ export function buildDecoyAt(L: number): DecoyBuild | null {
   const allTiles = [...boardTiles, ...rack]
 
   // (b) board + rack really is partitionable (the decoy has a real home).
-  if (!solveBag(allTiles).solvable) return null
+  if (!solveBagM2(allTiles).solvable) return null
 
   // (d) the obvious move must fail — exhaustively, not heuristically.
   const search = existsNoRelocationWin(grid, rack)
@@ -965,7 +972,7 @@ export function buildDecoyAt(L: number): DecoyBuild | null {
   // s..s+L) and the remainder must be UNSOLVABLE — the tempting move is a dead end.
   const inRunExtension = (t: Tile) => t.c === c && t.n >= s && t.n <= s + L
   const runExtension = allTiles.filter(inRunExtension)
-  if (solveBag(allTiles.filter(t => !inRunExtension(t))).solvable) return null
+  if (solveBagM2(allTiles.filter(t => !inRunExtension(t))).solvable) return null
 
   // Deterministic hybrid goal: short run {s+L-2,s+L-1,s+L}c on row 0, then one
   // value-group per value on the following rows.
@@ -1010,9 +1017,9 @@ export function buildDecoyAt(L: number): DecoyBuild | null {
 // wrong provably makes the other's true home unreachable — the two tiles are
 // coupled through one reorganization, and neither obvious move is safe.
 //
-// TRAP scoping (verified with real solveBag, both directions):
-//   commit H  → solveBag(allTiles \ {c at s..s+L})    is UNSOLVABLE  (Lo orphaned)
-//   commit Lo → solveBag(allTiles \ {c at s-1..s+L-1}) is UNSOLVABLE (H orphaned)
+// TRAP scoping (verified with the real solver, both directions):
+//   commit H  → solveBagM2(allTiles \ {c at s..s+L})    is UNSOLVABLE  (Lo orphaned)
+//   commit Lo → solveBagM2(allTiles \ {c at s-1..s+L-1}) is UNSOLVABLE (H orphaned)
 // while the correct hybrid goal (both extenders in their short runs) wins.
 //
 // L is capped at 6: with L≥7 the c-middle is ≥3 values wide, so "extend BOTH
@@ -1088,7 +1095,7 @@ export function buildRedHerringAt(L: number): RedHerringBuild | null {
   const allTiles = [...boardTiles, ...rack]
 
   // (b) board + rack really is partitionable (both extenders have real homes).
-  if (!solveBag(allTiles).solvable) return null
+  if (!solveBagM2(allTiles).solvable) return null
 
   // (d) the obvious moves must fail — exhaustively, not heuristically.
   const search = existsNoRelocationWin(grid, rack)
@@ -1104,8 +1111,8 @@ export function buildRedHerringAt(L: number): RedHerringBuild | null {
   const inLow = (t: Tile) => t.c === c && t.n >= s - 1 && t.n <= s + L - 1
   const trapHigh = allTiles.filter(inHigh)
   const trapLow = allTiles.filter(inLow)
-  if (solveBag(allTiles.filter(t => !inHigh(t))).solvable) return null
-  if (solveBag(allTiles.filter(t => !inLow(t))).solvable) return null
+  if (solveBagM2(allTiles.filter(t => !inHigh(t))).solvable) return null
+  if (solveBagM2(allTiles.filter(t => !inLow(t))).solvable) return null
 
   // Deterministic hybrid goal: two short runs of c (low + high), then one group
   // per value — c-middle stays {c,o1,o2}, the four vacated ends are {o1,o2,k}.
@@ -1136,7 +1143,7 @@ export function buildRedHerringAt(L: number): RedHerringBuild | null {
 // in isolation, and not two independent puzzles side by side — see the coupling
 // note below.
 //
-// WHY THE NAIVE SUPERPOSITION IS IMPOSSIBLE (probed with real solveBag before
+// WHY THE NAIVE SUPERPOSITION IS IMPOSSIBLE (probed with the real solver before
 // building, not assumed). Simply putting buildDecoy's rack on colour cD and
 // buildRedHerring's rack on colour cH fails twice over:
 //
@@ -1263,7 +1270,7 @@ export function buildComposedAt(L: number): ComposedBuild | null {
   const allTiles = [...boardTiles, ...rack]
 
   // (b) board + rack really is partitionable (all three tempting tiles have homes).
-  if (!solveBag(allTiles).solvable) return null
+  if (!solveBagM2(allTiles).solvable) return null
 
   // (d) no way to empty the rack without relocating a board tile — exhaustive.
   const search = existsNoRelocationWin(grid, rack)
@@ -1280,7 +1287,7 @@ export function buildComposedAt(L: number): ComposedBuild | null {
   const isHighTrap = inSpan(cHerring, s, s + L)
   const isLowTrap = inSpan(cHerring, s - 1, s + L - 1)
   const isBothTrap = inSpan(cHerring, s - 1, s + L)
-  const dead = (pred: (t: Tile) => boolean) => !solveBag(allTiles.filter(t => !pred(t))).solvable
+  const dead = (pred: (t: Tile) => boolean) => !solveBagM2(allTiles.filter(t => !pred(t))).solvable
   if (!dead(isDecoyTrap) || !dead(isHighTrap) || !dead(isLowTrap) || !dead(isBothTrap)) return null
 
   // Deterministic hybrid goal — never planMixedGoal's factorial search.
