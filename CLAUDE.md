@@ -311,6 +311,77 @@ no other file's count moved. The remaining 24 are all later-step construction
 sites: `storage.ts` 21 (Step 8 legacy-save migration), `solver.ts` 2 (inside
 `solveBag`'s `reconstructAssignment` — retired in Step 7), `TilePicker.tsx` 1.
 
+**🐞 SEPARATE PRE-EXISTING BUG FOUND IN STEP 9, NOT FIXED (out of scope) —
+THE LIBRARY'S "PLAY" BUTTON DOES NOT PLAY THE SAVED PUZZLE.** `App.tsx`'s
+`handlePlay(_puzzle)` **discards its argument** and only calls `setScreen('play')`;
+`PlayScreen` takes no puzzle prop and generates its own on mount. So clicking Play
+on any library entry silently shows a freshly generated puzzle instead. The
+leading underscore suggests it was knowingly stubbed. Fixing it means threading a
+puzzle into `PlayScreen` — a real feature change, its own session. **Note this
+blocks any future "load a saved puzzle and check X" verification**, as it did here.
+
+**m=2 MIGRATION — Step 9 CLOSED (`Rack.tsx` keyed by id; duplicate drag identity
+verified in a REAL browser).** Harness: `src/lib/dragIdentity.verify.ts`
+(`npx tsx src/lib/dragIdentity.verify.ts`, **29 passed / 0 failed**).
+
+*The one code change:* `Rack.tsx` `key={i}` → `key={tile.id}`. The rack is spliced
+on every RACK→GRID drop and appended on every displacement, so index keys remount
+surviving tiles and restart their animations. Ids are unique within a puzzle, so
+this is a legal sibling key even with both copies of a duplicate in the rack.
+
+***THE CONSTRAINT THAT MUST NEVER BE VIOLATED:*** `dimmed={draggingRackIdx === i}`
+compares the rack **INDEX** and is left unchanged, now with a comment saying why.
+Two copies of a duplicate are visually identical — **if this ever became a
+value+colour comparison, dragging ONE copy would dim BOTH**, which looks broken and
+leaks to the player that the two tiles are "the same", something real Rummikub
+never reveals. The harness encodes the counterfactual: the forbidden form dims 2
+tiles, the shipped form dims 1.
+
+*`Board.tsx` / `DragPreview.tsx` / `useDrag.ts` / `TileFace.tsx` — confirmed by
+READING, not by trusting §0.2:* Board keys cells `${r}-${c}` and dims via
+`srcRow === r && srcCol === c`; `invalid`/`lockIn`/`hovered` all key on `${r},${c}`;
+`useDrag` carries a positional `DragSrc`; `TileFace` renders from `tile.n`/`tile.c`
+and never reads `tile.id`. **Zero changes needed**, and a repo-wide grep found NO
+value+colour comparison anywhere in components/hooks/screens — the only `.c ===`
+hit is `dragSrc.col === target.col`, a *column*.
+
+***DESIGN DECISION — duplicates get NO visual distinction.*** Followed the
+document's recommendation: real Rummikub tiles are indistinguishable, and marking
+them would leak puzzle structure. This needed no code (TileFace already renders
+from `(n,c)` only) and is now **asserted by the harness** so it cannot regress.
+
+*Verified in a REAL browser (Chrome automation was available this session — unlike
+some earlier sessions).* Test vehicle built through the **actual editor UI**:
+board group `1r/1b/1k` + **two copies of `1a`** in the rack.
+```
+Step 8 cap, live: adding a THIRD 1a refused ->
+    "Only 2 copies of any tile are allowed."   rack stayed at 2
+Saved to real localStorage: rack ids ["1_a_0","1_a_1"], both rendering "1a"
+Drag held on copy #0 : copy#0 opacity 0.35 scale 0.93 | copy#1 opacity 1, no transform
+Drag held on copy #1 : ["1", "0.35"]                  (mirror case)
+REAL mouse drag of the 2nd rack tile onto the board, React props read back:
+    board gained 1_a_1   |   rack kept 1_a_0
+```
+That last one is the strongest evidence: **the specific copy moved, not "whichever
+matches (1,a)"**. A temporary `PlayScreen` shim was needed to get the puzzle on
+screen (because of the `handlePlay` bug above) and was **fully reverted** — the
+commit touches only `Rack.tsx` and `tsconfig.app.json`.
+
+*Method note:* reading computed styles immediately after dispatching `mousedown`
+races React's re-render, and a follow-up screenshot in a separate round trip ends
+the drag. Hold the drag and capture **within one `browser_batch`**, or allow a
+~250ms settle before reading.
+
+*`tsconfig.app.json` gained `"node"` in `types`* — `src/lib` holds seven
+tsx-executed harnesses and `dragIdentity.verify.ts` reads component source via
+`node:fs`. **Trade-off accepted knowingly and noted in the file: Node globals are
+now visible to real browser code**, so `process`/`fs` in a component would
+typecheck and then fail in the browser. Keep app code free of Node APIs.
+
+*A `dup-test` puzzle now sits in the real `puzzikub_library` localStorage* — left
+deliberately as a manual duplicate-drag fixture. Delete it from the Library screen
+whenever it is no longer wanted.
+
 **✅ BUILD IS UNBLOCKED — standalone build-fix session, NOT a numbered migration
 step.** `npm run build` (`tsc -b && vite build`) had failed ever since Step 1 added
 `Tile.id`, on 2 errors in `solveBag`'s `reconstructAssignment`
