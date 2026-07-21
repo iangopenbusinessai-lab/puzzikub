@@ -26,7 +26,7 @@ import { generatePuzzle } from './generator'
 
 let pass = 0, fail = 0
 const check = (label: string, ok: boolean) => { if (ok) pass++; else { fail++; console.log(`  FAIL  ${label}`) } }
-const key = (t: Tile) => `${t.n}_${t.c}`
+const key = (t: Tile) => t.id // goal maps are id-keyed (m=2 Step 5)
 
 // Faithful transcription of usePlayState's DROP reducer (same as verifyEngine.ts).
 type Drop =

@@ -49,7 +49,7 @@ interface SimResult { moves: number; won: boolean; note: string }
 function simulateGoal(startGrid: Grid, startRack: Tile[], goal: Map<string, [number, number]>): SimResult {
   const grid = startGrid.map(r => [...r])
   const rack = [...startRack]
-  const goalOf = (t: Tile) => goal.get(`${t.n}_${t.c}`)!
+  const goalOf = (t: Tile) => goal.get(t.id)! // goal is id-keyed (m=2 Step 5)
   let moves = 0
   const misplaced = (): [number, number][] => {
     const out: [number, number][] = []

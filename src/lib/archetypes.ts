@@ -1,7 +1,7 @@
-import type { Tile, Grid, Difficulty } from '../types'
+import { type Tile, type Grid, type Difficulty, makeTile } from '../types'
 import { solveBag } from './solver'
 import { isValidRun, isValidGroup, validateGrid } from './validator'
-import { type WindowSpec, windowTiles, mixedLayoutMoves } from './mixedGoalPlanner'
+import { type WindowSpec, bindWindowTiles, mixedLayoutMoves } from './mixedGoalPlanner'
 
 /** The two directions of the same Latin-rectangle duality. */
 export type ArchetypeType = 'groups-to-runs' | 'runs-to-groups'
@@ -358,7 +358,10 @@ export function isTrivial(board: Grid, rack: Tile[]): boolean {
 // true optimum over every conceivable winning layout.
 // ---------------------------------------------------------------------------
 
-const tileKey = (t: Tile): string => `${t.n}_${t.c}`
+// m=2 migration Step 5: identity is the tile's STABLE id, not its (value,colour)
+// label — `{n,c}` alone cannot tell the two copies of a duplicate apart. Matches
+// mixedGoalPlanner's `tileKey`, which every hybrid goal map is read through.
+const tileKey = (t: Tile): string => t.id
 
 function permutations<T>(xs: T[]): T[][] {
   if (xs.length <= 1) return [xs]
@@ -373,7 +376,7 @@ function permutations<T>(xs: T[]): T[][] {
 export interface GoalPlan {
   /** Reference-solution length: exactly the moves `goal` costs to reach. */
   moves: number
-  /** tileKey → [row, col] it occupies in the goal layout. Covers board + rack. */
+  /** tile id → [row, col] it occupies in the goal layout. Covers board + rack. */
   goal: Map<string, [number, number]>
 }
 
@@ -560,10 +563,14 @@ export function planValueGroupGoal(grid: Grid, rack: Tile[]): GoalPlan | null {
 
   for (const pi of permutations(colors)) {
     const piIndex = new Map(pi.map((c, i) => [c, i]))
+    // `rank` maps a tile to its column inside its value's group. Keyed by minted
+    // copy-0 ids, which is safe here precisely because this planner rejects any
+    // value carrying a colour twice (the distinct-colour check above), so every
+    // tile it ever sees is the sole copy of its (value, colour).
     const rank = new Map<string, number>()
     for (const [v, cs] of byValue) {
       const ordered = [...cs].sort((a, b) => piIndex.get(a)! - piIndex.get(b)!)
-      ordered.forEach((c, i) => rank.set(tileKey({ n: v, c }), i))
+      ordered.forEach((c, i) => rank.set(tileKey(makeTile(v, c)), i))
     }
     for (let i = 0; i < n; i++) boardRank[i] = rank.get(tileKey(board[i].tile))!
 
@@ -644,7 +651,7 @@ export function buildGroupsToRuns(diff: Difficulty): ArchetypeResult | null {
 
   const grid: Grid = Array.from({ length: rows }, () => Array(cols).fill(null))
   for (let i = 0; i < L; i++) {
-    for (let k = 0; k < 4; k++) grid[rowStart + i][colStart + k] = { n: values[i], c: perms[i][k] }
+    for (let k = 0; k < 4; k++) grid[rowStart + i][colStart + k] = makeTile(values[i], perms[i][k])
   }
 
   // (a) the board the player is shown is already fully valid.
@@ -657,8 +664,8 @@ export function buildGroupsToRuns(diff: Difficulty): ArchetypeResult | null {
   if (lowCount > 2 || highCount > 2) return null
   const pick = shuffle(ALL_COLORS)
   const rack: Tile[] = [
-    ...pick.slice(0, lowCount).map(c => ({ n: s - 1, c })),
-    ...pick.slice(lowCount, lowCount + highCount).map(c => ({ n: s + L, c })),
+    ...pick.slice(0, lowCount).map(c => makeTile(s - 1, c)),
+    ...pick.slice(lowCount, lowCount + highCount).map(c => makeTile(s + L, c)),
   ]
 
   // (c) the rack is not already a puzzle on its own.
@@ -797,7 +804,7 @@ export function buildRunsToGroupsAt(L: number, rackSize: number): ArchetypeResul
 
   const grid: Grid = Array.from({ length: rows }, () => Array(cols).fill(null))
   boardColors.forEach((c, i) => {
-    for (let k = 0; k < L; k++) grid[rowStart + i][colStart + k] = { n: s + k, c }
+    for (let k = 0; k < L; k++) grid[rowStart + i][colStart + k] = makeTile(s + k, c)
   })
 
   // (a) the board the player is shown is already fully valid.
@@ -806,7 +813,7 @@ export function buildRunsToGroupsAt(L: number, rackSize: number): ArchetypeResul
   // Rack: the off-board colour, at values inside the block, never 3 in a row.
   const offsets = pickRackOffsets(L, rackSize)
   if (!offsets) return null
-  const rack: Tile[] = offsets.map(o => ({ n: s + o, c: rackColor }))
+  const rack: Tile[] = offsets.map(o => makeTile(s + o, rackColor))
 
   // (c) the rack is not already a puzzle on its own.
   if (formsValidSetAlone(rack)) return null
@@ -924,18 +931,18 @@ export function buildDecoyAt(L: number): DecoyBuild | null {
   const rows = L + 1
   const cols = L + 3
   const grid: Grid = Array.from({ length: rows }, () => Array(cols).fill(null))
-  boardColors.forEach((col, i) => { for (let o = 0; o < L; o++) grid[i][1 + o] = { n: s + o, c: col } })
+  boardColors.forEach((col, i) => { for (let o = 0; o < L; o++) grid[i][1 + o] = makeTile(s + o, col) })
 
   // (a) the board shown is already fully valid.
   if (!validateGrid(grid)) return null
 
   // Rack: the decoy, two supports (kColour at s+L-2 / s+L-1), and interior fillers.
-  const decoy: Tile = { n: s + L, c }
+  const decoy: Tile = makeTile(s + L, c)
   const rack: Tile[] = [
     decoy,
-    { n: s + L - 2, c: kColor },
-    { n: s + L - 1, c: kColor },
-    ...F.map(o => ({ n: s + o, c: kColor })),
+    makeTile(s + L - 2, kColor),
+    makeTile(s + L - 1, kColor),
+    ...F.map(o => makeTile(s + o, kColor)),
   ]
 
   // (c) the expanded rack is not already a self-contained set.
@@ -970,8 +977,14 @@ export function buildDecoyAt(L: number): DecoyBuild | null {
     windows.push({ type: 'group', value: s + o, colors: groupColors })
   }
 
+  // Bind each window slot to the CONCRETE tile already in grid+rack (never a
+  // freshly-minted one) so the goal is keyed by ids that actually exist. Here the
+  // binding is unambiguous — exactly one tile per (value, colour) — but going
+  // through the resolver is what keeps that an asserted fact rather than a hope.
+  const bound = bindWindowTiles(windows, allTiles)
+  if (!bound) return null
   const goal = new Map<string, [number, number]>()
-  windows.forEach((w, wi) => windowTiles(w).forEach((t, i) => goal.set(tileKey(t), [wi, 1 + i])))
+  bound.forEach((row, wi) => row.forEach((t, i) => goal.set(tileKey(t), [wi, 1 + i])))
 
   // (e) par + witness for the hybrid goal, via the proven mixed planner core.
   const res = mixedLayoutMoves(grid, rack, goal)
@@ -1058,18 +1071,18 @@ export function buildRedHerringAt(L: number): RedHerringBuild | null {
   const rows = L + 2
   const cols = L + 3
   const grid: Grid = Array.from({ length: rows }, () => Array(cols).fill(null))
-  boardColors.forEach((col, i) => { for (let o = 0; o < L; o++) grid[i][1 + o] = { n: s + o, c: col } })
+  boardColors.forEach((col, i) => { for (let o = 0; o < L; o++) grid[i][1 + o] = makeTile(s + o, col) })
 
   // (a) the board shown is already fully valid.
   if (!validateGrid(grid)) return null
 
-  const lowExtender: Tile = { n: s - 1, c }
-  const highExtender: Tile = { n: s + L, c }
+  const lowExtender: Tile = makeTile(s - 1, c)
+  const highExtender: Tile = makeTile(s + L, c)
   const rack: Tile[] = [
     lowExtender,
     highExtender,
-    { n: s, c: kColor }, { n: s + 1, c: kColor },            // supports for the LOW short run
-    { n: s + L - 2, c: kColor }, { n: s + L - 1, c: kColor }, // supports for the HIGH short run
+    makeTile(s, kColor), makeTile(s + 1, kColor),             // supports for the LOW short run
+    makeTile(s + L - 2, kColor), makeTile(s + L - 1, kColor), // supports for the HIGH short run
   ]
 
   // (c) the expanded rack is not already a self-contained set.
@@ -1109,8 +1122,11 @@ export function buildRedHerringAt(L: number): RedHerringBuild | null {
     windows.push({ type: 'group', value: s + o, colors: pulled ? [...others, kColor] : [c, ...others] })
   }
 
+  // Bind window slots to the concrete grid+rack tiles — see buildDecoyAt.
+  const bound = bindWindowTiles(windows, allTiles)
+  if (!bound) return null
   const goal = new Map<string, [number, number]>()
-  windows.forEach((w, wi) => windowTiles(w).forEach((t, i) => goal.set(tileKey(t), [wi, 1 + i])))
+  bound.forEach((row, wi) => row.forEach((t, i) => goal.set(tileKey(t), [wi, 1 + i])))
 
   // (e) + GENUINE HOME ×2: both extenders sit in the two short runs; the whole
   // hybrid reaches a validateGrid win with an exact par + witness.
@@ -1233,18 +1249,18 @@ export function buildComposedAt(L: number): ComposedBuild | null {
   const rows = L + 2
   const cols = L + 3
   const grid: Grid = Array.from({ length: rows }, () => Array(cols).fill(null))
-  boardColors.forEach((col, i) => { for (let o = 0; o < L; o++) grid[i][1 + o] = { n: s + o, c: col } })
+  boardColors.forEach((col, i) => { for (let o = 0; o < L; o++) grid[i][1 + o] = makeTile(s + o, col) })
 
   // (a) the board shown is already fully valid.
   if (!validateGrid(grid)) return null
 
-  const decoy: Tile = { n: s + L, c: cDecoy }
-  const lowExtender: Tile = { n: s - 1, c: cHerring }
-  const highExtender: Tile = { n: s + L, c: cHerring }
+  const decoy: Tile = makeTile(s + L, cDecoy)
+  const lowExtender: Tile = makeTile(s - 1, cHerring)
+  const highExtender: Tile = makeTile(s + L, cHerring)
   const rack: Tile[] = [
     decoy, lowExtender, highExtender,
-    { n: s, c: kColor }, { n: s + 1, c: kColor }, // cHerring's low run vacates these
-    { n: s + L - 3, c: kColor },                  // cClean's run vacates this one
+    makeTile(s, kColor), makeTile(s + 1, kColor), // cHerring's low run vacates these
+    makeTile(s + L - 3, kColor),                  // cClean's run vacates this one
   ]
 
   // (c) the rack is not a self-contained puzzle. This is the check that rejects
@@ -1293,18 +1309,20 @@ export function buildComposedAt(L: number): ComposedBuild | null {
     windows.push({ type: 'group', value: s + o, colors: groupColors })
   }
 
+  // Bind window slots to the concrete grid+rack tiles — see buildDecoyAt.
+  const bound = bindWindowTiles(windows, allTiles)
+  if (!bound) return null
   const goal = new Map<string, [number, number]>()
-  windows.forEach((w, wi) => windowTiles(w).forEach((t, i) => goal.set(tileKey(t), [wi, 1 + i])))
+  bound.forEach((row, wi) => row.forEach((t, i) => goal.set(tileKey(t), [wi, 1 + i])))
 
   // (e) par + witness for the combined hybrid goal, via the proven mixed core.
   const res = mixedLayoutMoves(grid, rack, goal)
   if (!res || !res.reachedGoal || !res.validGoal) return null
 
-  const span = (c: Tile['c'], lo: number, hi: number): Tile[] => {
-    const out: Tile[] = []
-    for (let n = lo; n <= hi; n++) out.push({ n, c })
-    return out
-  }
+  // Select the CONCRETE tiles from the bag rather than minting fresh ones, so the
+  // reported spans carry the same ids (and objects) the grid/rack hold.
+  const span = (c: Tile['c'], lo: number, hi: number): Tile[] =>
+    allTiles.filter(t => t.c === c && t.n >= lo && t.n <= hi)
   return {
     grid, rack: shuffle(rack), allTiles, minMoves: res.moves, goal,
     decoy, lowExtender, highExtender,

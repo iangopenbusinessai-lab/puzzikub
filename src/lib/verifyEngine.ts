@@ -31,18 +31,18 @@ const showSet = (s: Set<string>) => s.size === 0 ? '{}' : `{ ${[...s].join('  ')
 console.log('=== SOLVER SELF-TESTS ===')
 check('empty bag is unsolvable', solveBag([]).solvable === false)
 check('run of 3 same-color consecutive is solvable',
-  solveBag([{n:3,c:'r'},{n:4,c:'r'},{n:5,c:'r'}]).solvable === true)
-check('run of 2 is unsolvable', solveBag([{n:3,c:'r'},{n:4,c:'r'}]).solvable === false)
+  solveBag([makeTile(3, 'r'),makeTile(4, 'r'),makeTile(5, 'r')]).solvable === true)
+check('run of 2 is unsolvable', solveBag([makeTile(3, 'r'),makeTile(4, 'r')]).solvable === false)
 check('group of 3 same-value diff-color is solvable',
-  solveBag([{n:5,c:'r'},{n:5,c:'b'},{n:5,c:'k'}]).solvable === true)
+  solveBag([makeTile(5, 'r'),makeTile(5, 'b'),makeTile(5, 'k')]).solvable === true)
 check('2 same-value tiles alone is unsolvable',
-  solveBag([{n:5,c:'r'},{n:5,c:'b'}]).solvable === false)
+  solveBag([makeTile(5, 'r'),makeTile(5, 'b')]).solvable === false)
 
 const dualBlock: Tile[] = []
-for (const c of ['r','b','a'] as const) for (let v = 5; v <= 8; v++) dualBlock.push({ n: v, c })
+for (const c of ['r','b','a'] as const) for (let v = 5; v <= 8; v++) dualBlock.push(makeTile(v, c))
 check('3x4 dual block (runs or groups) is solvable', solveBag(dualBlock).solvable === true)
-check('single unmatched tile is unsolvable', solveBag([{n:9,c:'k'}]).solvable === false)
-const solvedResult = solveBag([{n:3,c:'r'},{n:4,c:'r'},{n:5,c:'r'}])
+check('single unmatched tile is unsolvable', solveBag([makeTile(9, 'k')]).solvable === false)
+const solvedResult = solveBag([makeTile(3, 'r'),makeTile(4, 'r'),makeTile(5, 'r')])
 check('assignment field is populated when solvable',
   solvedResult.assignment !== undefined && solvedResult.assignment.size === 3)
 
@@ -53,19 +53,19 @@ console.log('')
 console.log('=== VALIDATOR RULE: HORIZONTAL-ONLY COVERAGE ===')
 
 const hRun: Grid = Array.from({ length: 4 }, () => Array(4).fill(null))
-;[4,5,6].forEach((n, i) => { hRun[1][i] = { n, c: 'r' } })
+;[4,5,6].forEach((n, i) => { hRun[1][i] = makeTile(n, 'r') })
 check('horizontal run of 3 is valid', validateGrid(hRun) === true)
 
 const hGroup: Grid = Array.from({ length: 4 }, () => Array(4).fill(null))
-;(['r','b','a'] as const).forEach((c, i) => { hGroup[1][i] = { n: 7, c } })
+;(['r','b','a'] as const).forEach((c, i) => { hGroup[1][i] = makeTile(7, c) })
 check('horizontal group of 3 is valid', validateGrid(hGroup) === true)
 
 const vRun: Grid = Array.from({ length: 4 }, () => Array(4).fill(null))
-;[4,5,6].forEach((n, i) => { vRun[i][1] = { n, c: 'r' } })
+;[4,5,6].forEach((n, i) => { vRun[i][1] = makeTile(n, 'r') })
 check('the SAME run arranged vertically is now INVALID', validateGrid(vRun) === false)
 
 const vGroup: Grid = Array.from({ length: 4 }, () => Array(4).fill(null))
-;(['r','b','a'] as const).forEach((c, i) => { vGroup[i][1] = { n: 7, c } })
+;(['r','b','a'] as const).forEach((c, i) => { vGroup[i][1] = makeTile(7, c) })
 check('the SAME group arranged vertically is now INVALID', validateGrid(vGroup) === false)
 
 // ---------------------------------------------------------------------------
@@ -125,33 +125,33 @@ console.log('=== REGRESSION: known fill-in-the-blank boards must be rejected ===
 
 // Horizontal run extension: row 2 is 7r 8r 9r; 10r appends and the grid is won.
 const fitbRun: Grid = Array.from({ length: 5 }, () => Array(10).fill(null))
-;(['k','b','r'] as const).forEach((c, r) => { for (let i = 0; i < 3; i++) fitbRun[r][i] = { n: 7 + i, c } })
+;(['k','b','r'] as const).forEach((c, r) => { for (let i = 0; i < 3; i++) fitbRun[r][i] = makeTile(7 + i, c) })
 check('board is valid before the rack is placed', validateGrid(fitbRun) === true)
 check('horizontal run-extension win is detected (existsNoRelocationWin)',
-  existsNoRelocationWin(fitbRun, [{ n: 10, c: 'r' }]).win === true)
+  existsNoRelocationWin(fitbRun, [makeTile(10, 'r')]).win === true)
 check('horizontal run-extension win is detected (isTrivial)',
-  isTrivial(fitbRun, [{ n: 10, c: 'r' }]) === true)
+  isTrivial(fitbRun, [makeTile(10, 'r')]) === true)
 
 // Horizontal group completion: row 0 is 5r 5b 5a; 5k appends into a group of 4.
 const fitbGroup: Grid = Array.from({ length: 5 }, () => Array(10).fill(null))
-;(['r','b','a'] as const).forEach((c, i) => { fitbGroup[0][i] = { n: 5, c } })
-;[7,8,9].forEach((n, i) => { fitbGroup[2][i] = { n, c: 'r' } })
-;[2,3,4].forEach((n, i) => { fitbGroup[4][i] = { n, c: 'b' } })
+;(['r','b','a'] as const).forEach((c, i) => { fitbGroup[0][i] = makeTile(5, c) })
+;[7,8,9].forEach((n, i) => { fitbGroup[2][i] = makeTile(n, 'r') })
+;[2,3,4].forEach((n, i) => { fitbGroup[4][i] = makeTile(n, 'b') })
 check('group-completion board is valid before the rack is placed', validateGrid(fitbGroup) === true)
 check('horizontal group-completion win is detected (existsNoRelocationWin)',
-  existsNoRelocationWin(fitbGroup, [{ n: 5, c: 'k' }]).win === true)
+  existsNoRelocationWin(fitbGroup, [makeTile(5, 'k')]).win === true)
 check('horizontal group-completion win is detected (isTrivial)',
-  isTrivial(fitbGroup, [{ n: 5, c: 'k' }]) === true)
+  isTrivial(fitbGroup, [makeTile(5, 'k')]) === true)
 
 // The old vertical trap: 8a beneath the 8-column used to complete a group of
 // four eights. Under horizontal-only coverage it is just a lone tile in row 3.
 check('the OLD vertical group-completion is no longer a win',
-  existsNoRelocationWin(fitbRun, [{ n: 8, c: 'a' }]).win === false)
+  existsNoRelocationWin(fitbRun, [makeTile(8, 'a')]).win === false)
 
 // Failure mode 2: rack is a complete run on its own.
 const freeGrid: Grid = Array.from({ length: 5 }, () => Array(10).fill(null))
-;(['k','b','r'] as const).forEach((c, r) => { for (let i = 0; i < 3; i++) freeGrid[r][i] = { n: 7 + i, c } })
-const freeRack: Tile[] = [{n:4,c:'a'},{n:5,c:'a'},{n:6,c:'a'},{n:7,c:'a'},{n:8,c:'a'}]
+;(['k','b','r'] as const).forEach((c, r) => { for (let i = 0; i < 3; i++) freeGrid[r][i] = makeTile(7 + i, c) })
+const freeRack: Tile[] = [makeTile(4, 'a'),makeTile(5, 'a'),makeTile(6, 'a'),makeTile(7, 'a'),makeTile(8, 'a')]
 check('free-standing rack run is detected (formsValidSetAlone)',
   formsValidSetAlone(freeRack) === true)
 check('free-standing rack run is detected (isTrivial)', isTrivial(freeGrid, freeRack) === true)
@@ -194,29 +194,29 @@ function bruteNoRelocationWin(board: Grid, rack: Tile[]): boolean {
 
 // depth-2 win: a run of 3 on the board, rack extends it by two tiles at the end.
 const deep1: Grid = Array.from({ length: 5 }, () => Array(9).fill(null))
-;[5, 6, 7].forEach((n, i) => { deep1[1][1 + i] = { n, c: 'r' } })
-;(['b','a','k'] as const).forEach((c, i) => { deep1[3][1 + i] = { n: 4, c } })
+;[5, 6, 7].forEach((n, i) => { deep1[1][1 + i] = makeTile(n, 'r') })
+;(['b','a','k'] as const).forEach((c, i) => { deep1[3][1 + i] = makeTile(4, c) })
 check('depth-2 run extension is found (planted win)',
-  existsNoRelocationWin(deep1, [{n:8,c:'r'},{n:9,c:'r'}]).win === true)
+  existsNoRelocationWin(deep1, [makeTile(8, 'r'),makeTile(9, 'r')]).win === true)
 
 // depth-2 win requiring a GAP to be filled, not just an endpoint extended.
 const deep2: Grid = Array.from({ length: 5 }, () => Array(9).fill(null))
-deep2[1][1] = { n: 5, c: 'r' }
-deep2[1][3] = { n: 7, c: 'r' }
-;(['b','a','k'] as const).forEach((c, i) => { deep2[3][1 + i] = { n: 4, c } })
+deep2[1][1] = makeTile(5, 'r')
+deep2[1][3] = makeTile(7, 'r')
+;(['b','a','k'] as const).forEach((c, i) => { deep2[3][1 + i] = makeTile(4, c) })
 check('depth-2 gap fill + endpoint extension is found (planted win)',
-  existsNoRelocationWin(deep2, [{n:6,c:'r'},{n:8,c:'r'}]).win === true)
+  existsNoRelocationWin(deep2, [makeTile(6, 'r'),makeTile(8, 'r')]).win === true)
 
 // a board where genuinely no no-relocation win exists must not be reported as one
 const deep3: Grid = Array.from({ length: 5 }, () => Array(9).fill(null))
-;(['b','a','k'] as const).forEach((c, i) => { deep3[1][1 + i] = { n: 4, c } })
+;(['b','a','k'] as const).forEach((c, i) => { deep3[1][1 + i] = makeTile(4, c) })
 check('no false positive on a board with no possible win',
-  existsNoRelocationWin(deep3, [{n:11,c:'r'},{n:13,c:'b'}]).win === false)
-check('  ...and brute force agrees', bruteNoRelocationWin(deep3, [{n:11,c:'r'},{n:13,c:'b'}]) === false)
+  existsNoRelocationWin(deep3, [makeTile(11, 'r'),makeTile(13, 'b')]).win === false)
+check('  ...and brute force agrees', bruteNoRelocationWin(deep3, [makeTile(11, 'r'),makeTile(13, 'b')]) === false)
 check('planted wins agree with brute force (deep1)',
-  bruteNoRelocationWin(deep1, [{n:8,c:'r'},{n:9,c:'r'}]) === true)
+  bruteNoRelocationWin(deep1, [makeTile(8, 'r'),makeTile(9, 'r')]) === true)
 check('planted wins agree with brute force (deep2)',
-  bruteNoRelocationWin(deep2, [{n:6,c:'r'},{n:8,c:'r'}]) === true)
+  bruteNoRelocationWin(deep2, [makeTile(6, 'r'),makeTile(8, 'r')]) === true)
 
 // ---------------------------------------------------------------------------
 // Planted win on a REAL generated board. Unpruned brute force over a rack of 4
@@ -232,7 +232,7 @@ function plantedRunRack(grid: Grid): Tile[] | null {
   for (const t of grid.flat()) if (t) used.add(t.n)
   for (let v = 1; v + 3 <= 13; v++) {
     if ([v, v+1, v+2, v+3].every(x => !used.has(x)))
-      return [v, v+1, v+2, v+3].map(n => ({ n, c: 'r' as const }))
+      return [v, v+1, v+2, v+3].map(n => (makeTile(n, 'r' as const)))
   }
   return null
 }
@@ -271,7 +271,7 @@ function goalLayoutIsReachable(grid: Grid, allTiles: Tile[], plan: GoalPlan | nu
   if (!plan) return false
   const goal: Grid = Array.from({ length: grid.length }, () => Array(grid[0].length).fill(null))
   for (const t of allTiles) {
-    const pos = plan.goal.get(`${t.n}_${t.c}`)
+    const pos = plan.goal.get(t.id)
     if (!pos) return false
     const [r, c] = pos
     if (r < 0 || r >= goal.length || c < 0 || c >= goal[0].length) return false
@@ -313,6 +313,9 @@ for (const arch of ARCHETYPES) {
       if (search.exhausted) { exhausted++; anyInvariantFailed = true }
       if (obviousPlacementWins(grid, rack)) { failDobvious++; anyInvariantFailed = true }
 
+      // Deliberately a LABEL key, not `t.id`: this asserts the builders still
+      // emit m=1-shaped puzzles (no (value,colour) twice). Step 11's duplicate
+      // archetype is what relaxes it — until then a collision here is a bug.
       const keys = allTiles.map(t => `${t.n}_${t.c}`)
       if (new Set(keys).size !== keys.length) { failCollision++; anyInvariantFailed = true }
 
@@ -420,7 +423,7 @@ function simulatePlan(startGrid: Grid, startRack: Tile[], plan: GoalPlan | null)
 
   const grid = startGrid.map(r => [...r])
   const rack = [...startRack]
-  const goalOf = (t: Tile) => plan.goal.get(`${t.n}_${t.c}`)!
+  const goalOf = (t: Tile) => plan.goal.get(t.id)!
   let moves = 0
 
   const misplaced = (): [number, number][] => {
