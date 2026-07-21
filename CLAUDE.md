@@ -311,6 +311,52 @@ no other file's count moved. The remaining 24 are all later-step construction
 sites: `storage.ts` 21 (Step 8 legacy-save migration), `solver.ts` 2 (inside
 `solveBag`'s `reconstructAssignment` — retired in Step 7), `TilePicker.tsx` 1.
 
+**m=2 MIGRATION — Step 7 CLOSED (builders on `solveBagM2`). `solveBag` is NOT
+removed — see its retirement status below; this is the one place Step 7 deviates
+from what an earlier note predicted.**
+
+*The swap:* all **11** `solveBag` call sites in `archetypes.ts` → `solveBagM2` —
+the (b) solvability gate in all five builders, plus all six trap-deadness checks
+in decoy/redherring/composed. `solveBagM2`'s implementation untouched.
+
+***`solveBag` RETIREMENT STATUS: still live, deliberately.*** No production code
+calls it, but it is still imported by **four verification harnesses**
+(`verifyEngine.ts`, `decoy.verify.ts`, `redherring.verify.ts`,
+`composed.verify.ts`) — checked by grep, not assumed. **Keep it that way:** every
+existing archetype emits an m=1-shaped bag, a strict subset of what `solveBagM2`
+handles, so *builders on `solveBagM2` checked by harnesses on `solveBag`* is a live
+differential test rather than a solver grading its own homework. Retire it only
+when no harness needs an independent oracle. Note Step 11's duplicate-bearing
+archetype **cannot** use it at all — m=1 `solveBag` rejects any duplicate outright.
+The retirement rationale is also written at `solveBag`'s definition in `solver.ts`.
+
+**Correction to the Step 2 note below:** it predicted Step 7 would clear
+`solver.ts`'s 2 tsc errors by deleting `solveBag`. **That prediction was wrong** —
+`solveBag` survives, so those 2 errors remain open indefinitely.
+
+*Verification (real executed output):*
+- Harnesses, **identical pass counts to Step 6**: `verifyEngine` **52/0** +
+  invariants (a)-(d) all passed · `decoy` **23/0** · `redherring` **25/0** ·
+  `composed` **32/0** · `mixedGoalPlanner` **37/0** · `pairingMin` **31/0**.
+- **Real-batch regression — the check that actually matters, not fixed test
+  cases:** 120 `generatePuzzle()` calls per difficulty = **480 real puzzles**, full
+  invariant suite (a / b / c / d / d-literal / clean-cells / par>0 / not
+  budget-exhausted): **480/480 passed, 0 failures**, budget-exhausted 0. All five
+  layers emitted at hard and extreme (e.g. extreme: decoy 36, redherring 25,
+  composed 23, runs-to-groups 19, groups-to-runs 17), per-layer par sets exactly as
+  recorded — `runs-to-groups {20}`, decoy `{25}`, redherring `{24}`, composed `{27}`.
+- **The Step 7 safety claim checked LIVE on those same 480 shipped bags** rather
+  than inherited from the Step 10 probe: `solveBag(bag).solvable ===
+  solveBagM2(bag).solvable`, **0 mismatches**.
+- Par, 20 fresh builds each, `actual [expected]`: easy 11 [11] · medium 16 [16] ·
+  hard 20 [20] · decoy 22 [22] / 25 [25] · redherring 21 [21] / 24 [24] · composed
+  24 [24] / 27 [27] — **ALL SEVEN UNCHANGED**.
+
+*tsc: **24 errors, UNCHANGED**.* Diff-read against the Step 6 list: the ONLY
+difference is `solver.ts` line numbers 124/127 → 142/145, which is the doc comment
+added above `solveBag` — same two errors, same code, same message. Remaining 24:
+`storage.ts` 21 (Step 8), `solver.ts` 2 (above), `TilePicker.tsx` 1 (Step 9).
+
 **m=2 MIGRATION — Step 6 GENUINELY CLOSED (6a design + 6b implementation + 6c
 re-proof). ZERO par change for every shipped archetype.** `bindMinCostGoal()` in
 `mixedGoalPlanner.ts`; harness `src/lib/pairingMin.verify.ts` (run `npx tsx
