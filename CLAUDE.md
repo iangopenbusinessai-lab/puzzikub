@@ -311,14 +311,49 @@ no other file's count moved. The remaining 24 are all later-step construction
 sites: `storage.ts` 21 (Step 8 legacy-save migration), `solver.ts` 2 (inside
 `solveBag`'s `reconstructAssignment` — retired in Step 7), `TilePicker.tsx` 1.
 
-**⚠️ BUILD IS CURRENTLY BROKEN — PRE-EXISTING SINCE STEP 1, NOT CAUSED BY STEP 8.**
-`npm run build` is `tsc -b && vite build`, and `tsc -b` fails on the **2 remaining
-`solver.ts` errors** (`tileKey({n,c})` at lines 142/145 inside `solveBag`'s
-`reconstructAssignment`). **So `npm run deploy` cannot succeed and the live site
-cannot be updated until these are fixed.** They are a ~2-line fix
-(`tileKey({n,c})` → `tileKey(makeTile(v, c))`), deliberately NOT done in Step 8 —
-out of scope, and CLAUDE.md calls for a dedicated session for anything touching
-`solver.ts`. **Do this before Step 12 / any deploy.**
+**✅ BUILD IS UNBLOCKED — standalone build-fix session, NOT a numbered migration
+step.** `npm run build` (`tsc -b && vite build`) had failed ever since Step 1 added
+`Tile.id`, on 2 errors in `solveBag`'s `reconstructAssignment`
+(`tileKey({n,c})`). Fixed: `tileKey({ n: v, c })` → `tileKey(makeTile(v, c))` at
+both sites, plus the `makeTile` import. **That is the whole functional change — 2
+lines.** `npm run build` now succeeds (`106 modules transformed, built in 177ms`)
+and **`tsc -p tsconfig.app.json` is at ZERO errors** — the Step 1 error list is
+fully discharged (131 → 102 → 24 → 2 → 0).
+
+*Why this provably could not change `solveBag`'s behaviour* — which matters because
+Step 7 keeps `solveBag` alive as the independent oracle `solveBagM2` is checked
+against, so a silent change here would have corrupted every differential test since
+Step 2:
+- `tileKey` is `` t => `${t.n}_${t.c}` `` — it reads `n`/`c` and **ignores `id`**, so
+  `makeTile(v, c)` yields a byte-identical key string to the old literal.
+- `reconstructAssignment` runs **only after `dp()` has already returned true**; it
+  builds the assignment map and cannot influence `solvable`.
+- The DP itself (duplicate rejection, range check, group enumeration, run-state
+  transitions, memo) is untouched, and `solveBagM2` does not appear in the diff.
+
+*Proven, not argued — differential against the pre-fix implementation extracted
+verbatim from git (it runs fine under `tsx`; the failure was type-level, not
+runtime), comparing BOTH `solvable` and the full assignment map:*
+```
+13 explicit known cases, each with a stated expected value : expected met AND
+   fixed === pre-fix on all 13 (incl. empty bag, run of 2, duplicate,
+   out-of-range, dangling pair, 3x4 dual block)
+30,000 constructed bags, 22,607 solvable : 0 solvable disagreements,
+                                           0 assignment-map disagreements
+74 structured block bags : 0 disagreements; assignment still re-partitions
+                           into genuinely valid runs/groups, 74/74
+6,000 duplicate-free bags : solveBag vs solveBagM2 still agree, 0 mismatches
+```
+`verifyEngine`'s own original SOLVER SELF-TESTS also pass unchanged. **Method note
+worth keeping:** the first sweep used purely *random* bags and produced only
+**8 solvable out of 30,000** — which would have left the one changed function
+essentially untested. Bags are now built from real runs/groups and then perturbed.
+Random bags are almost never partitionable; don't trust a solver sweep that doesn't
+report its solvable count.
+
+**This does NOT mean the branch is shippable.** `m2-migration` still must not be
+merged to main — Steps 9-13 remain. A green build means a deploy *would* work, not
+that it should happen.
 
 **m=2 MIGRATION — Step 8 CLOSED (`storage.ts` + editor). Legacy saves migrate
 safely; proven against reconstructed-real data.** Harness:
