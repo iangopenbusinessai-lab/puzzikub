@@ -14,6 +14,15 @@ interface Props {
 
 export function Rack({ tiles, drag, onTileMouseDown, onRackEnter, onRackLeave }: Props) {
   const tileStyle = useContext(TileStyleContext)
+  // m=2 migration Step 9 — POSITIONAL, and it must stay that way.
+  //
+  // This compares the dragged tile's rack INDEX to the index being rendered. Two
+  // copies of a duplicate (value, colour) are visually identical, so if this ever
+  // became a `tile.n === drag.tile.n && tile.c === drag.tile.c` comparison,
+  // dragging ONE copy would dim BOTH — which looks broken AND leaks to the player
+  // that the two tiles are "the same", something real Rummikub never reveals.
+  // Comparing `tile.id === drag.tile.id` would also be correct (ids are unique per
+  // puzzle); comparing value+colour is the bug. Do not "simplify" this.
   const draggingRackIdx = drag?.src.from === 'rack' ? drag.src.rackIdx : undefined
 
   return (
@@ -35,7 +44,13 @@ export function Rack({ tiles, drag, onTileMouseDown, onRackEnter, onRackLeave }:
       >
         {tiles.map((tile, i) => (
           <div
-            key={i}
+            // Keyed by stable tile id, not array index: the rack is spliced on
+            // every RACK->GRID drop and appended on every displacement, so index
+            // keys remount surviving tiles and restart their animations. Ids are
+            // unique within a puzzle (builders mint copy 0/1; the editor caps at
+            // TILE_COPIES; legacy migration mints distinct copies), so this is a
+            // valid sibling key even with both copies of a duplicate in the rack.
+            key={tile.id}
             style={{ cursor: 'grab', userSelect: 'none' }}
             onMouseDown={e => onTileMouseDown(e, tile, { from: 'rack', rackIdx: i })}
           >

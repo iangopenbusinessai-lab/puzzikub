@@ -4,7 +4,14 @@
     "target": "es2023",
     "lib": ["ES2023", "DOM"],
     "module": "esnext",
-    "types": ["vite/client"],
+    // "node" is here because src/lib/ contains the verification harnesses
+    // (*.verify.ts, verifyEngine.ts), which are executed with `npx tsx` and are
+    // never bundled — nothing in the app imports them. dragIdentity.verify.ts
+    // reads component source with node:fs to guard against drift.
+    // TRADE-OFF, accepted knowingly: this also makes Node globals visible to real
+    // browser code, so `process`/`fs` in a component would now typecheck and then
+    // fail in the browser. Keep app code free of Node APIs.
+    "types": ["vite/client", "node"],
     "skipLibCheck": true,
 
     /* Bundler mode */
