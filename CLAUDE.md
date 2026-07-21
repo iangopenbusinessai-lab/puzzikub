@@ -311,6 +311,92 @@ no other file's count moved. The remaining 24 are all later-step construction
 sites: `storage.ts` 21 (Step 8 legacy-save migration), `solver.ts` 2 (inside
 `solveBag`'s `reconstructAssignment` — retired in Step 7), `TilePicker.tsx` 1.
 
+**m=2 MIGRATION — Step 6 GENUINELY CLOSED (6a design + 6b implementation + 6c
+re-proof). ZERO par change for every shipped archetype.** `bindMinCostGoal()` in
+`mixedGoalPlanner.ts`; harness `src/lib/pairingMin.verify.ts` (run `npx tsx
+src/lib/pairingMin.verify.ts`, **31 passed / 0 failed**, ~9 min — it is BFS-bound).
+
+*6b — the minimisation, driving Step 4's `pinned` override exactly as it was built
+to be driven. No deviation from 6a's settled findings:*
+- Enumerates ONLY duplicated labels with **≥1 copy already on the board**.
+  Both-copies-in-rack duplicates are skipped outright (reported as
+  `skippedRackOnly`) — rack tiles have no cell, so they can be neither `fixed` nor
+  on a cycle, making the copies interchangeable.
+- Each candidate: `bindWindowTiles(pinned)` → `mixedLayoutMoves`; **minimum wins**.
+  Ties go to the earliest candidate, which IS the ascending-id default, so **d=0
+  yields exactly ONE candidate with an empty pinned map — structurally identical to
+  the Step 5 call.** That is the reason an m=1-shaped build *cannot* change par by
+  adopting this; it is not a lucky measurement.
+- **No min-cost bipartite matching.** Finding 3 proved 2^d enumeration sufficient;
+  that machinery is deliberately not built.
+- **Guard:** `d > MAX_ENUMERATED_DUPLICATES` (6) throws `PairingBlowupError` naming
+  the offending labels — loud, never a silent 128-binding search.
+- `archetypes.ts`: the three hybrid builders call it instead of
+  `bindWindowTiles` + hand-built goal + `mixedLayoutMoves`. No construction,
+  parameter or window shape changed. `planColorRunGoal`/`planValueGroupGoal` need
+  nothing — both reject duplicate-bearing bags outright, so they never see one.
+
+*6c — the re-proof, split into three NAMED links so each says what it actually
+covers (real executed output):*
+```
+LINK 1  min-over-pairings == min-over-BFS-per-pairing
+        instances=300  BFS-checked=300  BFS-refused(nodecap)=0  (998 BFS runs)
+        BFS mismatches=0
+        BFS-checked by tile count : 6t:101  9t:106  10t:93
+        pairing mattered (spread>0) 300/300; naive strictly worse 20/300
+LINK 2  realistic scale, wrapper == exhaustive over ALL 2^D pairings
+        instances=300   tiles 19-30   d histogram d=1:55 d=2:65 d=3:103
+                                                  d=4:36 d=5:19 d=6:22
+        wrapper != exhaustive min : 0        (candidates avg 12.4, max 64)
+LINK 3  every winning witness replayed through an independent DROP reducer
+        length != par : 0     not a validateGrid win : 0
+```
+**BFS is run to EVERY candidate pairing's goal, not just the chosen one** — BFS-ing
+only the chosen binding would re-test Step 4, not this step. LINK 2's exhaustive
+reference includes the rack-only labels the wrapper skips, so **the skip is
+re-proven at realistic scale rather than inherited from 6a** (also section 2: 300
+instances, exhaustive spread 0 every time).
+
+**What is NOT claimed, stated plainly:** BFS at 19-30 tiles. A 27-tile scramble
+sits ~27 plies deep at ~300 successors/ply — unreachable by any BFS. What limits
+BFS is search DEPTH, not tile count (branching ≈ tiles × cells per ply), which is
+why LINK 1's instances are full-size but perturbed a *bounded* number of drops from
+goal. The node cap was never hit at 6/9/10 tiles (`BFS-refused = 0`) — a measured
+ceiling, not an assumed one. The harness header names all three links and their
+limits; do not upgrade these claims when citing them later.
+
+*The named case (6a's cut-point construction — red 1-8 + dup 3 + dup 6, d=2), real
+output, all four pairings independently BFS-confirmed:*
+```
+  3r->[0,1] 6r->[0,1] : cost=2 (fixed=6 cycles=2)  BFS=2 ✓
+  3r->[0,1] 6r->[1,0] : cost=1 (fixed=8 cycles=1)  BFS=1 ✓
+  3r->[1,0] 6r->[0,1] : cost=1 (fixed=8 cycles=1)  BFS=1 ✓
+  3r->[1,0] 6r->[1,0] : cost=0 (fixed=10 cycles=0) BFS=0 ✓
+  bindMinCostGoal picked par=0, candidates=4, spread=2
+  naive (ascending-id default) would have paid 2
+```
+So the wrapper demonstrably picks the cheaper pairing on the exact construction
+Step 11 targets — not merely in a unit check.
+
+*CRITICAL REGRESSION — all seven shipped par numbers unchanged, 20 fresh builds
+each, `actual [expected]`:*
+```
+  easy 11 [11]   medium 16 [16]   hard 20 [20]
+  decoy      22 [22] / 25 [25]
+  redherring 21 [21] / 24 [24]
+  composed   24 [24] / 27 [27]
+  --> ALL SEVEN PAR NUMBERS UNCHANGED
+```
+`verifyEngine.ts` 52/0 + invariants (a)-(d) all passed; `decoy.verify.ts` 23/0;
+`redherring.verify.ts` 25/0; `composed.verify.ts` 32/0; `mixedGoalPlanner.verify.ts`
+37/0.
+
+*tsc: **24 errors, UNCHANGED from Step 5**.* The two touched files contribute zero.
+(One transient error appeared and was fixed in-session: `PairingBlowupError` used a
+constructor parameter property, which this tsconfig's `erasableSyntaxOnly` forbids
+— the field is now declared explicitly. Worth remembering for any future class.)
+Remaining 24: `storage.ts` 21 (Step 8), `solver.ts` 2 (Step 7), `TilePicker.tsx` 1.
+
 **⚠️ RESOLVED BY STEP 5 (kept for the record) — Step 4/5 BOUNDARY:
 `decoy.verify.ts` / `redherring.verify.ts` / `composed.verify.ts` were RED after
 Step 4, by design.** Root
