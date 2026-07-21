@@ -382,6 +382,64 @@ typecheck and then fail in the browser. Keep app code free of Node APIs.
 deliberately as a manual duplicate-drag fixture. Delete it from the Library screen
 whenever it is no longer wanted.
 
+**m=2 MIGRATION — Step 10 FORMALLY CLOSED (re-verification session, no code
+changes).** Distinct from "resolved by probe": the 10a probe (§10a, still the
+correct citation for *why* the swap is safe) proved the claim once, in isolation,
+before Steps 4-9 existed. This session re-ran the full suite on the CURRENT
+codebase — post Step 9, all of Phase A/B/C complete — to confirm the resolution
+held through every subsequent implementation step, not just at the moment it was
+first probed.
+
+*All eight harnesses green, real pasted output, nothing regressed since Step 9:*
+```
+decoy.verify.ts             === SELF-CHECKS: 23 passed, 0 failed ===
+redherring.verify.ts        === SELF-CHECKS: 25 passed, 0 failed ===
+composed.verify.ts          === SELF-CHECKS: 32 passed, 0 failed ===
+verifyEngine.ts             === SELF-TESTS: 52 passed, 0 failed ===
+                             === INVARIANTS (a)-(d): ALL PASSED on every generated puzzle ===
+mixedGoalPlanner.verify.ts  === SELF-CHECKS: 37 passed, 0 failed ===
+pairingMin.verify.ts        === SELF-CHECKS: 31 passed, 0 failed ===
+storage.verify.ts           === SELF-CHECKS: 37 passed, 0 failed ===
+dragIdentity.verify.ts      === SELF-CHECKS: 29 passed, 0 failed ===
+```
+
+*Par, all seven numbers exact — confirmed independently by TWO sources (each
+archetype's own harness AND `pairingMin.verify.ts`'s own regression section),
+`actual [expected]`:*
+```
+easy       11 [11]     medium 16 [16]     hard 20 [20]
+decoy      22 [22] / 25 [25]
+redherring 21 [21] / 24 [24]
+composed   24 [24] / 27 [27]
+--> ALL SEVEN PAR NUMBERS UNCHANGED
+```
+
+*TRAP mechanics specifically re-confirmed on FRESH puzzles, not fixed cases* — both
+`decoy.verify.ts` and `redherring.verify.ts` independently rebuild 25 puzzles per
+difficulty EVERY run (confirmed by the varying example puzzle printed each
+invocation — this run's decoy example was `{13a} s=7 L=6`, an arbitrary draw, not
+a hardcoded fixture) and recompute the trap property THEMSELVES on each fresh
+instance by calling `solveBagM2` directly on the reduced bag, rather than trusting
+the builder's own internal boolean. This run: decoy TRAP=25/25 (hard) and 25/25
+(extreme); red herring TRAP(hi)=25/25 and TRAP(lo)=25/25 at both tiers; composed
+TRAP(decoy/hi/lo/both)=25/25 across the board. The property held on every fresh
+draw, not just on cases baked into the harness at write-time.
+
+*Strict build gate — `npm run build` (`tsc -b && vite build`), not the narrower
+`tsc -p tsconfig.app.json` alone (per the lesson from the build-unblock session
+below):* succeeds cleanly — `106 modules transformed, built in 234ms`, zero tsc
+errors. (`tsc -p tsconfig.app.json` also independently checked at zero, so the two
+gates agree.)
+
+**Nothing surprised, nothing failed.** The 10a probe's claim — `solveBagM2` agrees
+with `solveBag` on every duplicate-free bag, so the existing traps (built and
+checked entirely on duplicate-free bags) cannot be silently defused by the Step 7
+solver swap — held through Steps 4 through 9 exactly as predicted. **The genuine
+duplicate-defusal risk remains entirely Step 11's to prove from scratch**, per
+10a's own scoping: Step 11's archetype is the first one whose reduced bags can
+actually gain a second copy, so it needs its own trap proof and cannot inherit
+this one.
+
 **✅ BUILD IS UNBLOCKED — standalone build-fix session, NOT a numbered migration
 step.** `npm run build` (`tsc -b && vite build`) had failed ever since Step 1 added
 `Tile.id`, on 2 errors in `solveBag`'s `reconstructAssignment`
