@@ -247,8 +247,73 @@ added `bindWindowTiles` export and unchanged `windowTiles`/`mixedLayoutMoves`
 signatures did not affect it). Remaining 102: verifyEngine 53, archetypes 25, storage
 21, solver 2, TilePicker 1 — all later-step construction sites.
 
-**⚠️ EXPECTED Step 4/5 BOUNDARY — `decoy.verify.ts` / `redherring.verify.ts` /
-`composed.verify.ts` are RED after Step 4, by design; Step 5 restores them.** Root
+**m=2 MIGRATION — Step 5 DONE (`archetypes.ts` id-keyed plumbing). ZERO behavioural
+change: every harness green, every par number EXACT.** The Step 4/5 boundary noted
+below is CLOSED — the three trap harnesses are green again.
+
+*What changed (mechanical only — this relabels which string identifies a tile, never
+what gets built):*
+- `tileKey` is now `t => t.id` (was `${n}_${c}`), matching `mixedGoalPlanner`'s
+  `tileKey` — the one every hybrid goal map is read through. `GoalPlan.goal` and
+  every `goal.set(...)` are keyed by id.
+- All **17** `{ n, c }` literals in `archetypes.ts` → `makeTile(n, c)`.
+- **The actual Step 4/5 fix:** the three hybrid-goal sites (`buildDecoyAt`,
+  `buildRedHerringAt`, `buildComposedAt`) now bind window specs to the **CONCRETE
+  grid+rack tiles via `bindWindowTiles`** instead of minting fresh copy-0 spec
+  tiles. Under m=1 a minted id and the real id coincide, so this is behaviour-
+  neutral today; it is required by MIGRATION_M2.md §0.5's note and makes "exactly
+  one tile per (value,colour), so the binding is unambiguous" an *asserted* fact
+  (`bindWindowTiles` returns null if a slot has no concrete tile) rather than a
+  hope. `buildComposedAt`'s `span` likewise selects from `allTiles` now.
+- One judgement call recorded: `planValueGroupGoal`'s internal `rank` map is keyed
+  by minted copy-0 ids. Safe *because that planner already rejects any value
+  carrying a colour twice*, so it never sees a duplicate — commented in place.
+- Harness edits forced by the same swap, **no assertion loosened**: `verifyEngine.ts`
+  53 tile literals → `makeTile` + `plan.goal` lookups by `t.id`; the three trap
+  harnesses' goal lookups by `t.id`. `verifyEngine`'s `allTiles` collision check
+  stays a **LABEL** key deliberately — it asserts the builders still emit m=1-shaped
+  puzzles, which IS Step 5's contract (Step 11 is what relaxes it).
+
+*Verification (real executed output):*
+```
+verifyEngine.ts             === SELF-TESTS: 52 passed, 0 failed ===
+                            === INVARIANTS (a)-(d): ALL PASSED on every generated puzzle ===
+                            (a)-(e) 25/25 per archetype per difficulty, 0 duplicates
+decoy.verify.ts             === SELF-CHECKS: 23 passed, 0 failed ===
+redherring.verify.ts        === SELF-CHECKS: 25 passed, 0 failed ===
+composed.verify.ts          === SELF-CHECKS: 32 passed, 0 failed ===
+mixedGoalPlanner.verify.ts  === SELF-CHECKS: 37 passed, 0 failed ===
+```
+**Par: EXACT on all seven recorded numbers — 20 fresh builds each, zero spread**
+(observed value set printed per row, not narrated):
+```
+EXACT  easy       (runs-to-groups)  expected 11  observed [11]
+EXACT  medium     (runs-to-groups)  expected 16  observed [16]
+EXACT  hard       (runs-to-groups)  expected 20  observed [20]
+EXACT  decoy      hard/extreme      expected 22/25  observed [22]/[25]
+EXACT  redherring hard/extreme      expected 21/24  observed [21]/[24]
+EXACT  composed   hard/extreme      expected 24/27  observed [24]/[27]
+--> ALL EXACT
+```
+`groups-to-runs` par is per-instance variable by construction (it always was);
+its measured averages are unchanged too — 10.4 / 13.4 / 19.8 / 24.3 vs the
+previously recorded 10.6 / 13.4 / 20.6 / 24.2.
+
+*The `goal.get(undefined) → null` path is gone:* `buildDecoy` / `buildRedHerring` /
+`buildComposed` each return non-null **100/100** at hard AND extreme (was: null on
+every call after Step 4), and all three layers are emitted by real
+`generatePuzzle()` again — e.g. extreme/200: composed 43, decoy 59, red herring 52,
+base 46.
+
+*tsc delta, read from the actual diff: **102 → 24 (−78)**.* Exactly the two files
+touched: `archetypes.ts` 25 → 0 and `verifyEngine.ts` 53 → 0. Zero new errors, and
+no other file's count moved. The remaining 24 are all later-step construction
+sites: `storage.ts` 21 (Step 8 legacy-save migration), `solver.ts` 2 (inside
+`solveBag`'s `reconstructAssignment` — retired in Step 7), `TilePicker.tsx` 1.
+
+**⚠️ RESOLVED BY STEP 5 (kept for the record) — Step 4/5 BOUNDARY:
+`decoy.verify.ts` / `redherring.verify.ts` / `composed.verify.ts` were RED after
+Step 4, by design.** Root
 cause (exact, for Step 5): `archetypes.ts:974` (and :1113, :1297) build `goal` keyed
 by archetypes' LOCAL `tileKey = ${n}_${c}` over id-less `{n,c}` board tiles, then
 call the now-id-keyed `mixedLayoutMoves`, which looks up `goal.get(t.id)` →
