@@ -29,8 +29,9 @@
 // ---------------------------------------------------------------------------
 
 import type { Tile, Grid } from '../types'
+import { makeTile, TILE_COPIES } from '../types'
 import { isValidRun, isValidGroup, validateGrid } from './validator'
-import { solveBag } from './solver'
+import { solveBagM2 } from './solver'
 
 export type WindowSpec =
   | { type: 'run'; color: Tile['c']; start: number; length: number }
@@ -48,16 +49,112 @@ export type Drop =
   | { from: 'grid'; r: number; c: number; tr: number; tc: number }
   | { from: 'rack'; key: string; tr: number; tc: number }
 
-export const tileKey = (t: Tile): string => `${t.n}_${t.c}`
+// ---------------------------------------------------------------------------
+// TWO distinct keys, because m=2 forces them apart (Step 4 of MIGRATION_M2.md):
+//
+//  • `tileKey` = the tile's STABLE id (`${n}_${c}_${copy}`). This is the key for
+//    every CONCRETE-tile path: the goal cell map, the reducer/witness, the cost
+//    graph. Two copies of a (value,colour) have different ids, so they map to
+//    different cells and are moved independently — exactly what m=2 needs and
+//    what the old `${n}_${c}` key silently collided.
+//
+//  • `labelKey` = `${n}_${c}` (value+colour, copy-agnostic). This keys the
+//    SPEC-level multiset in `windowsPartitionBag`: a window spec says "red 4",
+//    which is a (value,colour) demand, not a demand for a specific copy. Feasi-
+//    bility is a multiset question ("do the windows' (value,colour) demands match
+//    the bag's (value,colour) supply, ≤ TILE_COPIES each?"); binding a spec slot
+//    to a SPECIFIC copy id is a separate step handled by `bindWindowTiles`.
+// ---------------------------------------------------------------------------
+export const tileKey = (t: Tile): string => t.id
+const labelKey = (t: { n: number; c: Tile['c'] }): string => `${t.n}_${t.c}`
 
-/** The tiles a window contains, left-to-right in their placed column order. */
+/** The (value,colour) SPEC slots a window contains, left-to-right in placed
+ * column order. These are minted at copy 0 for validation and length only; they
+ * are NOT the concrete tiles that fill the goal — under m=2 the goal must bind to
+ * the real copy ids present in the bag, which is `bindWindowTiles`' job, NOT this
+ * function's. (A caller that keys a goal map off `windowTiles` directly would
+ * silently pin every slot to copy 0 — the exact "whichever is first" trap the
+ * migration warns about. Route goal binding through `bindWindowTiles`.) */
 export function windowTiles(w: WindowSpec): Tile[] {
   if (w.type === 'run') {
     const out: Tile[] = []
-    for (let i = 0; i < w.length; i++) out.push({ n: w.start + i, c: w.color })
+    for (let i = 0; i < w.length; i++) out.push(makeTile(w.start + i, w.color))
     return out
   }
-  return w.colors.map(c => ({ n: w.value, c }))
+  return w.colors.map(c => makeTile(w.value, c))
+}
+
+// ---------------------------------------------------------------------------
+// Resolver (Step 4): bind each window's ordered spec slots to CONCRETE tiles
+// drawn from `bag` (grid+rack), by (value,colour). Returns, per window, the
+// concrete Tile[] (real ids) in column order — it NEVER mints a fresh id.
+//
+// AMBIGUITY — the subtle part the doc warns about. When a (value,colour) has two
+// copies in the bag (m=2) and both are demanded, which copy fills which window is
+// a genuine choice (a single window never repeats a (value,colour): runs have
+// distinct values, groups distinct colours — so the two copies always land in two
+// DIFFERENT windows). This resolver's rule is DELIBERATE and DETERMINISTIC:
+//
+//   Default (design (b)): consume copies of a label in ASCENDING id order,
+//   in window-encounter order (windows left→right, slots left→right). Because the
+//   pool bucket is explicitly sorted by id, the choice depends ONLY on tile ids —
+//   never on Map iteration order or grid-scan order. It is safe in the sense that
+//   MATTERS for Step 4: it always yields a VALID injective binding (every concrete
+//   tile bound to exactly one slot, no collisions) whose move cost `mixedLayoutMoves`
+//   then computes exactly (verified === move-BFS for that binding). It does NOT
+//   claim to be the MIN-cost pairing when a duplicate has a copy already on the
+//   board — choosing the cheapest pairing is Step 6's minimisation, which drives
+//   this resolver via `pinned` to enumerate the 2^d candidate pairings.
+//
+//   Override (design (a)): pass `pinned` mapping a labelKey to an explicit ordered
+//   list of ids; those ids fill that label's demand in the given order, ahead of
+//   the ascending-id default. This lets a caller pin exactly which copy goes to
+//   which window rather than accept the default.
+//
+// Returns null if a window demands a (value,colour) the bag cannot supply.
+// ---------------------------------------------------------------------------
+export function bindWindowTiles(windows: WindowSpec[], bag: Tile[], pinned?: Map<string, string[]>): Tile[][] | null {
+  const pool = new Map<string, Tile[]>()
+  for (const t of bag) {
+    const k = labelKey(t)
+    const arr = pool.get(k)
+    if (arr) arr.push(t)
+    else pool.set(k, [t])
+  }
+  // Deterministic tie-break: ascending id within each (value,colour) bucket.
+  for (const arr of pool.values()) arr.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+
+  if (pinned) {
+    for (const [k, ids] of pinned) {
+      const arr = pool.get(k)
+      if (!arr) return null
+      const byId = new Map(arr.map(t => [t.id, t]))
+      const picked: Tile[] = []
+      for (const id of ids) {
+        const t = byId.get(id)
+        if (!t) return null
+        picked.push(t)
+        byId.delete(id)
+      }
+      pool.set(k, [...picked, ...byId.values()])
+    }
+  }
+
+  const cursor = new Map<string, number>()
+  const out: Tile[][] = []
+  for (const w of windows) {
+    const row: Tile[] = []
+    for (const slot of windowTiles(w)) {
+      const k = labelKey(slot)
+      const arr = pool.get(k) ?? []
+      const i = cursor.get(k) ?? 0
+      if (i >= arr.length) return null
+      row.push(arr[i])
+      cursor.set(k, i + 1)
+    }
+    out.push(row)
+  }
+  return out
 }
 
 function windowIsValid(w: WindowSpec): boolean {
@@ -87,26 +184,44 @@ export function windowsPartitionBag(currentGrid: Grid, rack: Tile[], windows: Wi
 
   for (const w of windows) if (!windowIsValid(w)) return { feasible: false, reason: `invalid window ${JSON.stringify(w)}` }
 
-  const need = new Map<string, number>()
-  for (const t of bag) need.set(tileKey(t), (need.get(tileKey(t)) ?? 0) + 1)
-  // Puzzles never carry duplicate tiles; a repeated (n,c) can't sit on two cells.
-  for (const [k, count] of need) if (count > 1) return { feasible: false, reason: `duplicate tile ${k} in bag` }
+  // Supply: how many copies of each (value,colour) the bag holds. m=2 allows up
+  // to TILE_COPIES; a COUNT check (was a presence check that rejected any repeat).
+  const supply = new Map<string, number>()
+  for (const t of bag) supply.set(labelKey(t), (supply.get(labelKey(t)) ?? 0) + 1)
+  for (const [k, count] of supply) {
+    if (count > TILE_COPIES) return { feasible: false, reason: `(value,colour) ${k} appears ${count}× in bag, > TILE_COPIES(${TILE_COPIES})` }
+  }
 
-  const have = new Map<string, number>()
+  // Demand: how many slots the windows ask for of each (value,colour). A single
+  // window never repeats a (value,colour), so demand > 1 for a label simply means
+  // two different windows each want a copy — legal under m=2 when supply matches.
+  const demand = new Map<string, number>()
   for (const w of windows) for (const t of windowTiles(w)) {
-    const k = tileKey(t)
-    have.set(k, (have.get(k) ?? 0) + 1)
+    const k = labelKey(t)
+    demand.set(k, (demand.get(k) ?? 0) + 1)
   }
 
-  for (const [k, count] of have) {
-    if (count > 1) return { feasible: false, reason: `tile ${k} claimed by two windows` }
-    if (!need.has(k)) return { feasible: false, reason: `window tile ${k} not in bag` }
+  // Exact multiset match: every window slot backed by a bag copy, every bag copy
+  // claimed by exactly one slot.
+  for (const [k, d] of demand) {
+    const s = supply.get(k) ?? 0
+    if (d > s) return { feasible: false, reason: `windows demand ${d}× ${k} but bag has ${s}` }
   }
-  for (const k of need.keys()) if (!have.has(k)) return { feasible: false, reason: `bag tile ${k} covered by no window` }
+  for (const [k, s] of supply) {
+    const d = demand.get(k) ?? 0
+    if (d !== s) return { feasible: false, reason: `bag has ${s}× ${k} but windows cover ${d}` }
+  }
 
-  // Sanity: a valid partition into valid sets means the bag is solvable. If
-  // solveBag disagrees, something is inconsistent upstream.
-  if (!solveBag(bag).solvable) return { feasible: false, reason: 'solveBag says bag is not partitionable' }
+  // Concrete bindability: the resolver must place every copy on a distinct window
+  // slot (a stronger check than the multiset match — it exercises the id binding).
+  if (!bindWindowTiles(windows, bag)) return { feasible: false, reason: 'windows are not concretely bindable to the bag tiles' }
+
+  // Sanity: a valid partition into valid sets means the bag is solvable. Uses
+  // solveBagM2 (Step 2) rather than the m=1 solveBag — required so a genuine
+  // duplicate-bearing bag (which m=1 solveBag rejects outright) can pass. On
+  // duplicate-free bags solveBagM2 agrees with solveBag (Step 10 probe: 5,400
+  // bags, 0 mismatches), so m=1 feasibility verdicts are unchanged.
+  if (!solveBagM2(bag).solvable) return { feasible: false, reason: 'solveBagM2 says bag is not partitionable' }
 
   return { feasible: true }
 }
@@ -160,6 +275,8 @@ function analyticCost(boardCells: number[], goalCells: number[], rackCount: numb
  * a witness. GRID→GRID onto occupied swaps; RACK→GRID displaced → rack. */
 function applyDrop(grid: Grid, rack: Tile[], d: Drop): void {
   if (d.from === 'rack') {
+    // d.key is a concrete tile id, so this finds the SPECIFIC copy even when the
+    // rack holds both copies of a duplicate (the old ${n}_${c} key could not).
     const idx = rack.findIndex(t => tileKey(t) === d.key)
     const tile = rack[idx]
     rack.splice(idx, 1)
@@ -297,6 +414,12 @@ export function planMixedGoal(currentGrid: Grid, rack: Tile[], windows: WindowSp
   if (!feas.feasible) return null
   if (windows.length > rows) return null
 
+  // Bind each window's slots to the CONCRETE bag tiles (real ids) ONCE, up front —
+  // the goal map is keyed by those ids, never by freshly-minted copy-0 tiles.
+  const bag: Tile[] = [...currentGrid.flat().filter((t): t is Tile => t !== null), ...rack]
+  const bound = bindWindowTiles(windows, bag)
+  if (!bound) return null
+
   const rowChoices = Array.from({ length: rows }, (_, i) => i)
   let best: { moves: number; goal: Map<string, [number, number]>; layout: PlacedWindow[] } | null = null
 
@@ -317,12 +440,11 @@ export function planMixedGoal(currentGrid: Grid, rack: Tile[], windows: WindowSp
       const goal = new Map<string, [number, number]>()
       let ok = true
       for (let wi = 0; wi < windows.length && ok; wi++) {
-        const w = windows[wi]
         const row = rowPerm[wi]
         const cs = colOptions[wi][idx[wi]]
-        windowTiles(w).forEach((t, i) => {
+        bound[wi].forEach((t, i) => {
           const cell: [number, number] = [row, cs + i]
-          goal.set(tileKey(t), cell)
+          goal.set(t.id, cell)
         })
       }
       if (ok) {

@@ -183,6 +183,83 @@ before these 8 were added; nothing else changed or regressed).
 *tsc after Step 3: still 131 errors, UNCHANGED* — expected, since
 `validator.ts` was not touched at all.
 
+**m=2 MIGRATION — Step 4 DONE (`mixedGoalPlanner.ts`: id-keyed goals + concrete
+resolver).** The planner now speaks tile ids, not `(value,colour)` labels, so the
+two m=2 copies of a duplicate are placed and moved independently.
+
+*What changed (only `mixedGoalPlanner.ts` + its verify harness — no other file):*
+- `tileKey` is now `t => t.id` (was `${n}_${c}`). A new INTERNAL `labelKey =
+  ${n}_${c}` keys the `(value,colour)` MULTISET in feasibility only — the two
+  concepts genuinely split under m=2 (a window spec "red 4" is a label demand; a
+  goal cell needs a specific copy id).
+- `windowsPartitionBag`: presence check → **COUNT check**. Rejects a
+  `(value,colour)` only when it appears **> `TILE_COPIES`** in the bag (not merely
+  > once). Demand/supply are matched as label multisets; two windows may now both
+  claim a label (legal when the bag holds two copies). Its internal solvability
+  sanity check moved from `solveBag` → **`solveBagM2`** — required so a genuine
+  duplicate bag (which m=1 `solveBag` rejects outright) can pass; on duplicate-free
+  bags the two agree (Step 10 probe: 5,400 bags, 0 mismatches), so m=1 verdicts are
+  unchanged. (This is a consequence of the count-check change, NOT the Step 7
+  builder-call-site swap — no archetype call site was touched.)
+- `windowTiles(w)` no longer keys goals: it mints copy-0 SPEC tiles for validation
+  and length only. Goal binding goes through the new resolver `bindWindowTiles`.
+
+*RESOLVER DESIGN DECISION — built BOTH (a) and (b), (b) as the default:* the doc's
+"subtle part" (a window spec "red 4" can match two real tiles; never silently pick
+"whichever is first"). `bindWindowTiles(windows, bag, pinned?)` binds each window
+slot to a CONCRETE bag tile id, never mints one. When a `(value,colour)` has two
+demanded copies (it lands in a run window AND a group window — a single window never
+repeats a label), the choice is resolved by a **deliberate, documented rule: consume
+copies in ASCENDING id order** (the pool bucket is explicitly sorted by id, so the
+choice depends ONLY on ids — proven independent of bag/scan order by a test that
+binds the natural, 3a-reversed, and fully-shuffled bag to byte-identical results).
+Its safety claim is scoped precisely: it always yields a VALID injective binding
+(every copy → exactly one slot, no collision) whose move cost `mixedLayoutMoves`
+computes exactly (== move-BFS for that binding). It does **NOT** claim the MIN-cost
+pairing when a duplicate copy is already on the board — a test exhibits an instance
+where the ascending default costs 1 but the reverse pairing costs 0, and BFS confirms
+each. Choosing the cheapest pairing is **Step 6's** minimisation, which drives this
+resolver via the `pinned` override (design (a): pin explicit ids per label) to
+enumerate the 2^d candidate pairings. Step 4 deliberately stops at "correct per
+binding", which is exactly the Step 10 note's requirement.
+
+*Verification (real executed output; `npx tsx src/lib/mixedGoalPlanner.verify.ts`):*
+- **Regression (requirement 1):** the 16 original m=1 checks (sections 1-5) pass
+  UNCHANGED — DECOY hybrid par=19, the 2/3-cycle + path BFS crafts, the 800-instance
+  random sweep (493 BFS-checked, 0 witness/BFS mismatches), same as before. The only
+  edits to those sections were mechanical: bare `{n,c}` → `makeTile(n,c)` and
+  hardcoded goal keys `"7_r"` → `k(7,'r')` (= `7_r_0`), forced by `tileKey → id`.
+- **New m=2 duplicate cases (requirement 2), all BFS-cross-checked:** 21 new checks
+  (total **37 passed / 0 failed**). The canonical case — value-3 colour-a in both a
+  run `{1,2,3}a` and a group `{3:a,b,k}` (bag holds 3a#0 AND 3a#1) — verified for
+  BOTH the default binding (P0, analytic=witness=BFS=1) and the pinned reverse (P1,
+  =0), proving the pairing matters and each binding's cost is exact. Plus resolver
+  determinism (natural==reversed==shuffled binding), the count check
+  (2-copy bag feasible; 3-copy rejected citing `TILE_COPIES`), and a **369-instance
+  random m=2 sweep, all 369 BFS-checked, 0 witness and 0 BFS mismatches**, every one
+  with both duplicate copies on the board.
+
+*tsc delta (requirement 3): 131 → **102** (−29), verified by reading the diff.* The
+29 resolved errors are EXACTLY the fabricated-`{n,c}`-literal construction sites in
+the two files I touched (`mixedGoalPlanner.ts` 2 + `mixedGoalPlanner.verify.ts` 27),
+now minting ids via `makeTile`. Zero new errors; `archetypes.ts` stayed at 25 (my
+added `bindWindowTiles` export and unchanged `windowTiles`/`mixedLayoutMoves`
+signatures did not affect it). Remaining 102: verifyEngine 53, archetypes 25, storage
+21, solver 2, TilePicker 1 — all later-step construction sites.
+
+**⚠️ EXPECTED Step 4/5 BOUNDARY — `decoy.verify.ts` / `redherring.verify.ts` /
+`composed.verify.ts` are RED after Step 4, by design; Step 5 restores them.** Root
+cause (exact, for Step 5): `archetypes.ts:974` (and :1113, :1297) build `goal` keyed
+by archetypes' LOCAL `tileKey = ${n}_${c}` over id-less `{n,c}` board tiles, then
+call the now-id-keyed `mixedLayoutMoves`, which looks up `goal.get(t.id)` →
+`goal.get(undefined)` → null → `buildDecoy`/etc. return null. Step 5's stated job —
+"`{n,c}` literal → `makeTile(n,c)`; `GoalPlan.goal` and every `goal.set(...)` keyed
+by id" — is precisely this fix. NOT broken by Step 4: **`verifyEngine.ts` 52/52
+still green** (base archetypes don't use the planner) and **`generatePuzzle`
+degrades gracefully** — a rolled trap layer returns null and falls through to the
+base archetypes (`generator.ts:82/90-92`), so the live game still ships valid
+base-only puzzles until Step 5 (just with wasted retry attempts on a trap roll).
+
 ---
 
 ## ENGINE ARCHITECTURE (src/lib/) — ground truth definitions

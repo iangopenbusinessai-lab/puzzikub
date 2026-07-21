@@ -6,14 +6,24 @@
 // windows, plus the concrete examples from the three design docs. Real output.
 
 import type { Tile, Grid } from '../types'
+import { makeTile } from '../types'
 import {
   type WindowSpec,
   windowTiles,
   tileKey,
+  bindWindowTiles,
   mixedLayoutMoves,
   planMixedGoal,
   windowsPartitionBag,
 } from './mixedGoalPlanner'
+
+// Mint a concrete tile; `k(n,c,copy)` is its stable id (== tileKey). The existing
+// m=1 tests all use copy 0 (unique (value,colour)); the m=2 section below uses
+// copy 0 AND 1 to exercise duplicate binding. Replaces the old bare {n,c} literals
+// mechanically — Tile now requires an id (Step 1), so every construction site mints
+// one. tileKey is now the id, so hardcoded goal keys use k(n,c) instead of "n_c".
+const T = (n: number, c: Tile['c'], copy = 0): Tile => makeTile(n, c, copy)
+const k = (n: number, c: Tile['c'], copy = 0): string => makeTile(n, c, copy).id
 
 const ALL: Tile['c'][] = ['r', 'b', 'a', 'k']
 let pass = 0, fail = 0
@@ -213,8 +223,8 @@ console.log('1. DECOY_DESIGN concrete hybrid goal (run {4,5,6}r + groups) — 19
   const flat = flatOf(cols)
   const boardAt = new Map<number, Tile>()
   // board: r,b,a runs at values 1..5, rows 0,1,2, cols 1..5
-  ;(['r', 'b', 'a'] as Tile['c'][]).forEach((c, ri) => { for (let v = 1; v <= 5; v++) boardAt.set(flat(ri, v), { n: v, c }) })
-  const rack: Tile[] = [{ n: 2, c: 'k' }, { n: 4, c: 'k' }, { n: 5, c: 'k' }, { n: 6, c: 'r' }]
+  ;(['r', 'b', 'a'] as Tile['c'][]).forEach((c, ri) => { for (let v = 1; v <= 5; v++) boardAt.set(flat(ri, v), T(v, c)) })
+  const rack: Tile[] = [T(2, 'k'), T(4, 'k'), T(5, 'k'), T(6, 'r')]
   const grid = gridFrom(3, cols, boardAt)
 
   // hybrid goal windows, one per row
@@ -262,10 +272,10 @@ function craft(label: string, windows: WindowSpec[], cols: number, rowOf: number
     6, [0, 1], [0, 0],
     goal => {
       const at = new Map<number, Tile>()
-      const g = (k: string) => goal.get(k)!
-      at.set(g('7_r'), { n: 1, c: 'r' }); at.set(g('1_r'), { n: 7, c: 'r' }) // swapped
-      at.set(g('2_r'), { n: 2, c: 'r' }); at.set(g('3_r'), { n: 3, c: 'r' })
-      at.set(g('7_b'), { n: 7, c: 'b' }); at.set(g('7_k'), { n: 7, c: 'k' })
+      const g = (key: string) => goal.get(key)!
+      at.set(g(k(7, 'r')), T(1, 'r')); at.set(g(k(1, 'r')), T(7, 'r')) // swapped
+      at.set(g(k(2, 'r')), T(2, 'r')); at.set(g(k(3, 'r')), T(3, 'r'))
+      at.set(g(k(7, 'b')), T(7, 'b')); at.set(g(k(7, 'k')), T(7, 'k'))
       return at
     })
 
@@ -276,13 +286,13 @@ function craft(label: string, windows: WindowSpec[], cols: number, rowOf: number
     6, [0, 1, 2], [0, 0, 0],
     goal => {
       const at = new Map<number, Tile>()
-      const g = (k: string) => goal.get(k)!
+      const g = (key: string) => goal.get(key)!
       // cycle: 4b -> 9r's cell, 9r -> 10a's cell, 10a -> 4b's cell
-      at.set(g('9_r'), { n: 4, c: 'b' }); at.set(g('10_a'), { n: 9, c: 'r' }); at.set(g('4_b'), { n: 10, c: 'a' })
+      at.set(g(k(9, 'r')), T(4, 'b')); at.set(g(k(10, 'a')), T(9, 'r')); at.set(g(k(4, 'b')), T(10, 'a'))
       // rest fixed
-      at.set(g('5_b'), { n: 5, c: 'b' }); at.set(g('6_b'), { n: 6, c: 'b' })
-      at.set(g('9_b'), { n: 9, c: 'b' }); at.set(g('9_a'), { n: 9, c: 'a' })
-      at.set(g('10_r'), { n: 10, c: 'r' }); at.set(g('10_k'), { n: 10, c: 'k' })
+      at.set(g(k(5, 'b')), T(5, 'b')); at.set(g(k(6, 'b')), T(6, 'b'))
+      at.set(g(k(9, 'b')), T(9, 'b')); at.set(g(k(9, 'a')), T(9, 'a'))
+      at.set(g(k(10, 'r')), T(10, 'r')); at.set(g(k(10, 'k')), T(10, 'k'))
       return at
     })
 
@@ -293,15 +303,15 @@ function craft(label: string, windows: WindowSpec[], cols: number, rowOf: number
     7, [0, 1], [0, 0],
     goal => {
       const at = new Map<number, Tile>()
-      const g = (k: string) => goal.get(k)!
+      const g = (key: string) => goal.get(key)!
       // 8a sits on 2a's goal; 2a sits elsewhere (its goal empty-> drained). Keep simple:
-      at.set(g('2_a'), { n: 8, c: 'a' })       // 8a occupies 2a's goal
-      at.set(g('8_a'), { n: 2, c: 'a' })       // 2a occupies 8a's goal  (=> 2-cycle actually)
-      at.set(g('3_a'), { n: 3, c: 'a' }); at.set(g('4_a'), { n: 4, c: 'a' })
-      at.set(g('8_r'), { n: 8, c: 'r' }); at.set(g('8_b'), { n: 8, c: 'b' })
+      at.set(g(k(2, 'a')), T(8, 'a'))       // 8a occupies 2a's goal
+      at.set(g(k(8, 'a')), T(2, 'a'))       // 2a occupies 8a's goal  (=> 2-cycle actually)
+      at.set(g(k(3, 'a')), T(3, 'a')); at.set(g(k(4, 'a')), T(4, 'a'))
+      at.set(g(k(8, 'r')), T(8, 'r')); at.set(g(k(8, 'b')), T(8, 'b'))
       return at
     },
-    [{ n: 5, c: 'a' }]) // rack: 5a completes the run 2,3,4,5 a
+    [T(5, 'a')]) // rack: 5a completes the run 2,3,4,5 a
 }
 
 // ---------------------------------------------------------------------------
@@ -393,6 +403,202 @@ console.log('\n5. planMixedGoal optimizer timing (factorial in window count — 
     const t1 = performance.now()
     console.log(`   W=${W} windows, rows=${rows}: planMixedGoal ${(t1 - t0).toFixed(1)}ms  moves=${plan?.moves}  reached=${plan?.reachedGoal}`)
   }
+}
+
+// ===========================================================================
+// 6. m=2 DUPLICATE-BEARING instances (Step 4). The resolver `bindWindowTiles`
+//    must bind a window spec slot to a CONCRETE copy id in the bag; when a
+//    (value,colour) has two copies both demanded (it lands in a run window AND a
+//    group window), the choice of which copy → which window is exercised here and
+//    cross-checked against the same move-BFS ground truth every prior cost claim
+//    used. BFS distinguishes the two copies by id, so BFS on a goal built from a
+//    SPECIFIC binding yields exactly that binding's cost — the number
+//    mixedLayoutMoves must reproduce.
+// ===========================================================================
+console.log('\n6. m=2 duplicate-bearing binding (analytic == witness == BFS, per binding)')
+
+// Build a goal (id -> flat cell) from a concrete per-window binding + placement.
+function goalFromBinding(bound: Tile[][], rowOf: number[], colOf: number[], cols: number): Map<string, number> {
+  const flat = flatOf(cols)
+  const goal = new Map<string, number>()
+  bound.forEach((row, wi) => row.forEach((t, i) => goal.set(t.id, flat(rowOf[wi], colOf[wi] + i))))
+  return goal
+}
+
+{
+  // The canonical m=2 mixed case: value-3 colour-a appears in BOTH the run
+  // {1,2,3}a and the group {3: a,b,k}, so the bag holds 3a#0 AND 3a#1.
+  const windows: WindowSpec[] = [
+    { type: 'run', color: 'a', start: 1, length: 3 },      // 1a 2a 3a
+    { type: 'group', value: 3, colors: ['a', 'b', 'k'] },  // 3a 3b 3k
+  ]
+  const cols = 3
+  const flat = flatOf(cols)
+  // Concrete bag tiles (the two 3a copies are the whole point).
+  const A1 = T(1, 'a'), A2 = T(2, 'a'), A3_0 = T(3, 'a', 0), A3_1 = T(3, 'a', 1), B3 = T(3, 'b'), K3 = T(3, 'k')
+  const bag = [A1, A2, A3_0, A3_1, B3, K3]
+
+  // Current board: the two 3a copies are placed SWAPPED relative to ascending-id,
+  // and everything else already sits on its default-binding goal cell. This makes
+  // the two possible pairings cost differently — the Step 6 "pairing matters" fact.
+  //   run row 0: (0,0)=1a (0,1)=2a (0,2)= 3a#1   ← copy #1 sits on the run's 3a cell
+  //   grp row 1: (1,0)= 3a#0 (1,1)=3b (1,2)=3k   ← copy #0 sits on the group's 3a cell
+  const boardAt = new Map<number, Tile>([
+    [flat(0, 0), A1], [flat(0, 1), A2], [flat(0, 2), A3_1],
+    [flat(1, 0), A3_0], [flat(1, 1), B3], [flat(1, 2), K3],
+  ])
+  const grid = gridFrom(2, cols, boardAt)
+  const rowOf = [0, 1], colOf = [0, 0]
+  const cells = [...new Set<number>([flat(0, 0), flat(0, 1), flat(0, 2), flat(1, 0), flat(1, 1), flat(1, 2)])]
+
+  // --- Default binding (ascending id): 3a#0 -> run window, 3a#1 -> group window.
+  const boundDefault = bindWindowTiles(windows, bag)!
+  check('default binding: run window gets 3a copy #0 (ascending id)', boundDefault[0][2].id === k(3, 'a', 0))
+  check('default binding: group window gets 3a copy #1', boundDefault[1][0].id === k(3, 'a', 1))
+  const goalP0 = goalFromBinding(boundDefault, rowOf, colOf, cols)
+  const resP0 = mixedLayoutMoves(grid, [], goalRC(goalP0, cols))!
+  const bfsP0 = moveBFS(cols, boardAt, [], goalP0, cells)
+  console.log(`   default (P0: 3a#0->run, 3a#1->grp): analytic=${resP0.moves} witness=${resP0.witness.length} BFS=${bfsP0}  fixed=${resP0.fixed} cycles=${resP0.cycles} valid=${resP0.validGoal}`)
+  check('P0: analytic == witness', resP0.moves === resP0.witness.length)
+  check('P0: analytic == BFS', bfsP0 !== null && resP0.moves === bfsP0)
+  check('P0: goal layout is a validateGrid win', resP0.validGoal)
+
+  // --- Pinned binding (design (a)): the reverse pairing 3a#1 -> run, 3a#0 -> grp.
+  const pinned = new Map<string, string[]>([['3_a', [k(3, 'a', 1), k(3, 'a', 0)]]])
+  const boundPinned = bindWindowTiles(windows, bag, pinned)!
+  check('pinned binding: run window gets 3a copy #1 (override)', boundPinned[0][2].id === k(3, 'a', 1))
+  check('pinned binding: group window gets 3a copy #0 (override)', boundPinned[1][0].id === k(3, 'a', 0))
+  const goalP1 = goalFromBinding(boundPinned, rowOf, colOf, cols)
+  const resP1 = mixedLayoutMoves(grid, [], goalRC(goalP1, cols))!
+  const bfsP1 = moveBFS(cols, boardAt, [], goalP1, cells)
+  console.log(`   pinned  (P1: 3a#1->run, 3a#0->grp): analytic=${resP1.moves} witness=${resP1.witness.length} BFS=${bfsP1}  fixed=${resP1.fixed} cycles=${resP1.cycles} valid=${resP1.validGoal}`)
+  check('P1: analytic == witness', resP1.moves === resP1.witness.length)
+  check('P1: analytic == BFS', bfsP1 !== null && resP1.moves === bfsP1)
+  check('P1: goal layout is a validateGrid win', resP1.validGoal)
+
+  // The pairing genuinely matters: the two bindings have different cost, and the
+  // default (ascending id) is NOT the cheaper here — exactly why Step 6 must add a
+  // minimisation. Step 4 only guarantees each binding's cost is computed correctly.
+  console.log(`   pairing spread: P0=${resP0.moves} vs P1=${resP1.moves} (default is ${resP0.moves === resP1.moves ? 'tied' : resP0.moves < resP1.moves ? 'optimal here' : 'SUBOPTIMAL here — Step 6 will fix'})`)
+  check('pairing matters: P0 and P1 costs differ on this instance', resP0.moves !== resP1.moves)
+  check('both bindings validated by BFS independently', bfsP0 === resP0.moves && bfsP1 === resP1.moves)
+}
+
+// --- Resolver DETERMINISM & anti-"whichever is first" proof -----------------
+console.log('\n7. m=2 resolver is deterministic on id, NOT on bag/scan order')
+{
+  const windows: WindowSpec[] = [
+    { type: 'run', color: 'a', start: 1, length: 3 },
+    { type: 'group', value: 3, colors: ['a', 'b', 'k'] },
+  ]
+  const base = [T(1, 'a'), T(2, 'a'), T(3, 'a', 0), T(3, 'a', 1), T(3, 'b'), T(3, 'k')]
+  // Bag in natural order, and bag with the two 3a copies REVERSED, and a fully
+  // shuffled bag — all must bind identically (ascending id wins, not array order).
+  const reversed3a = [T(1, 'a'), T(2, 'a'), T(3, 'a', 1), T(3, 'a', 0), T(3, 'b'), T(3, 'k')]
+  const shuffled = shuffle(base)
+  const idsOf = (b: Tile[][]) => b.map(row => row.map(t => t.id).join(','))
+  const bDefault = idsOf(bindWindowTiles(windows, base)!)
+  const bReversed = idsOf(bindWindowTiles(windows, reversed3a)!)
+  const bShuffled = idsOf(bindWindowTiles(windows, shuffled)!)
+  console.log(`   natural  : ${bDefault.join('  |  ')}`)
+  console.log(`   reversed : ${bReversed.join('  |  ')}`)
+  console.log(`   shuffled : ${bShuffled.join('  |  ')}`)
+  check('binding identical regardless of bag order (natural == reversed)', JSON.stringify(bDefault) === JSON.stringify(bReversed))
+  check('binding identical regardless of bag order (natural == shuffled)', JSON.stringify(bDefault) === JSON.stringify(bShuffled))
+  check('two calls on same bag return identical binding (deterministic)',
+    JSON.stringify(idsOf(bindWindowTiles(windows, base)!)) === JSON.stringify(bDefault))
+}
+
+// --- windowsPartitionBag COUNT check (was a presence check) ------------------
+console.log('\n8. windowsPartitionBag: count check accepts <=TILE_COPIES, rejects more')
+{
+  const windows: WindowSpec[] = [
+    { type: 'run', color: 'a', start: 1, length: 3 },
+    { type: 'group', value: 3, colors: ['a', 'b', 'k'] },
+  ]
+  // Two copies of 3a — legal under m=2, was rejected outright by the old presence
+  // check. Board holds all six; empty rack.
+  const cols2 = 3
+  const flat2 = flatOf(cols2)
+  const bag2 = new Map<number, Tile>([
+    [flat2(0, 0), T(1, 'a')], [flat2(0, 1), T(2, 'a')], [flat2(0, 2), T(3, 'a', 0)],
+    [flat2(1, 0), T(3, 'a', 1)], [flat2(1, 1), T(3, 'b')], [flat2(1, 2), T(3, 'k')],
+  ])
+  const grid2 = gridFrom(2, cols2, bag2)
+  const feas2 = windowsPartitionBag(grid2, [], windows)
+  console.log(`   two 3a copies: feasible=${feas2.feasible}${feas2.reason ? ' reason=' + feas2.reason : ''}`)
+  check('count check ACCEPTS a genuine 2-copy (m=2) bag', feas2.feasible === true)
+
+  // Three copies of 3a — must be rejected by the count check (> TILE_COPIES).
+  const cols3 = 4
+  const flat3 = flatOf(cols3)
+  const bag3 = new Map<number, Tile>([
+    [flat3(0, 0), T(1, 'a')], [flat3(0, 1), T(2, 'a')], [flat3(0, 2), T(3, 'a', 0)], [flat3(0, 3), T(3, 'a', 1)],
+    [flat3(1, 0), T(3, 'a', 2)], [flat3(1, 1), T(3, 'b')], [flat3(1, 2), T(3, 'k')],
+  ])
+  const grid3 = gridFrom(2, cols3, bag3)
+  const feas3 = windowsPartitionBag(grid3, [], windows)
+  console.log(`   three 3a copies: feasible=${feas3.feasible}  reason=${feas3.reason}`)
+  check('count check REJECTS a 3-copy bag (> TILE_COPIES)', feas3.feasible === false)
+  check('rejection reason cites TILE_COPIES', !!feas3.reason && feas3.reason.includes('TILE_COPIES'))
+}
+
+// --- Randomised m=2 sweep: a shared (value,colour) forced into a run AND a group
+//     window, both copies placed, default binding cross-checked vs BFS ----------
+console.log('\n9. Random m=2 sweep (shared tile in run+group, default binding == BFS)')
+{
+  let n = 0, mismatchWit = 0, mismatchBFS = 0, dupPlacedBoth = 0, bfsSkipped = 0
+  const N = 400
+  for (let i = 0; i < N; i++) {
+    // pick the shared (value,colour) = (v, c), and a run of length 3 covering v.
+    const c = ALL[randInt(0, 3)]
+    const v = randInt(2, 12)
+    const start = v - randInt(0, 2)              // run covers v somewhere in its span
+    if (start < 1 || start + 2 > 13) continue
+    // group at value v with c + two other distinct colours.
+    const others = shuffle(ALL.filter(x => x !== c)).slice(0, 2)
+    const groupColors = shuffle([c, ...others])
+    const windows: WindowSpec[] = [
+      { type: 'run', color: c, start, length: 3 },
+      { type: 'group', value: v, colors: groupColors },
+    ]
+    // Concrete bag: run tiles (copy0 for the two non-dup values, and the dup at v),
+    // plus group tiles. The (v,c) tile appears in both → two copies.
+    const bag: Tile[] = []
+    for (let x = 0; x < 3; x++) bag.push(start + x === v ? T(v, c, 0) : T(start + x, c))
+    for (const gc of groupColors) bag.push(gc === c ? T(v, c, 1) : T(v, gc))
+    // sanity: exactly two copies of (v,c)
+    const dupCount = bag.filter(t => t.n === v && t.c === c).length
+    if (dupCount !== 2) continue
+
+    const bound = bindWindowTiles(windows, bag)
+    if (!bound) continue
+    const cols = 3
+    const goalFlat = goalFromBinding(bound, [0, 1], [0, 0], cols)
+    // scramble current positions: a permutation of the goal cells (rich cycles).
+    const goalCellsArr = [...goalFlat.values()]
+    const ids = [...goalFlat.keys()]
+    const perm = shuffle(goalCellsArr)
+    const boardAt = new Map<number, Tile>()
+    const byId = new Map(bag.map(t => [t.id, t]))
+    ids.forEach((id, idx) => boardAt.set(perm[idx], byId.get(id)!))
+    const grid = gridFrom(2, cols, boardAt)
+    const res = mixedLayoutMoves(grid, [], goalRC(goalFlat, cols))
+    if (!res) continue
+    n++
+    if (res.moves !== res.witness.length || !res.reachedGoal || !res.validGoal) mismatchWit++
+    const cells = [...new Set<number>([...boardAt.keys(), ...goalFlat.values()])]
+    if (cells.length > 11) { bfsSkipped++; continue }
+    const bfs = moveBFS(cols, boardAt, [], goalFlat, cells, 200_000)
+    if (bfs === null) { bfsSkipped++; continue }
+    if (bfs !== res.moves) { mismatchBFS++; if (mismatchBFS <= 5) console.log(`   MISMATCH analytic=${res.moves} bfs=${bfs} v=${v} c=${c}`) }
+    // did both copies of the dup actually land on the board (not trivially fixed)?
+    if (boardAt.size === bag.length) dupPlacedBoth++
+  }
+  console.log(`   instances=${n}  BFS-checked=${n - bfsSkipped}  witness mismatches=${mismatchWit}  BFS mismatches=${mismatchBFS}  (both-copies-on-board=${dupPlacedBoth})`)
+  check('m=2 sweep: zero witness/validateGrid mismatches', mismatchWit === 0)
+  check('m=2 sweep: zero BFS mismatches (default binding cost is exact)', mismatchBFS === 0)
+  check('m=2 sweep: enough instances', n >= 200)
 }
 
 console.log(`\n=== SELF-CHECKS: ${pass} passed, ${fail} failed ===`)
