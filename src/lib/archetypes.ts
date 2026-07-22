@@ -1330,3 +1330,237 @@ export function buildComposedAt(L: number): ComposedBuild | null {
     cDecoy, cHerring, cClean, s, L,
   }
 }
+
+// ---------------------------------------------------------------------------
+// CUT-POINT ARCHETYPE (m=2 Step 11) — the archetype the whole m=2 migration
+// existed for. It is the FIRST construction that genuinely REQUIRES duplicate
+// tiles: the board shows one already-valid run per colour, and the rack holds
+// SECOND COPIES of interior values. The player must break each apparently
+// finished run at the cut points, leaving every piece a valid run (length >= 3).
+//
+// Why this is a different puzzle from every other archetype here:
+//   - The starting board is a set of COMPLETE, VALID runs. It looks finished.
+//     There is nothing to "fill in" — obviousSpots() is 0 for every rack tile,
+//     because a duplicate can never legally extend the run it duplicates.
+//   - The only way to win is to DISMANTLE something that already validates.
+//
+// THREE MEASURED FACTS THAT FIX THE DESIGN (see cutpoint.verify.ts for output):
+//
+// 1. SPREAD, NEVER ADJACENT. With duplicates at d1<d2, the migration doc's
+//    prototype found two solution shapes: adjacent (d2=d1+1) admits a TWO-run
+//    answer, spread (d2>=d1+2) a THREE-run answer. Measured across L=8..13, the
+//    adjacent shape is essentially NEVER uniquely solvable (0 unique instances
+//    at every L>=10); the spread shape is. Only spread ships. This resolves the
+//    doc's explicit "one archetype or two?" question by measurement: it is ONE
+//    archetype, because the other shape is structurally inferior, not merely
+//    different.
+//
+// 2. UNIQUENESS IS THE TRAP. A bag of ONE colour admits no group at all
+//    (isValidGroup needs >=3 distinct colours), so every part of the answer is
+//    a run — and a uniquely-partitionable bag therefore makes EVERY wrong cut
+//    fatal: commit any run that is not one of the true parts and the remainder
+//    is unsolvable. That is a stronger trap than decoy/red-herring/composed,
+//    which each verify a handful of specific tempting commitments. The builder
+//    gates on uniqueness; the harness proves the trap exhaustively over every
+//    candidate run on real builds.
+//
+// 3. AT MOST TWO COLOUR BLOCKS — load-bearing, not a tuning knob. Two colours
+//    can never form a group, so the bag stays runs-only and the whole puzzle's
+//    solution count is the PRODUCT of the per-colour counts. A third colour
+//    sharing values would make groups available, exploding the solution space
+//    and destroying uniqueness (and with only 13 values, three blocks of the
+//    length this needs cannot avoid sharing). buildCutPointAt REFUSES
+//    blockCount > 2 rather than clamping it.
+// ---------------------------------------------------------------------------
+
+/**
+ * Cut offsets (1-based, relative to the run's first value) that are UNIQUELY
+ * solvable AND hit the target par, per run length L. Verified exhaustively by
+ * cutpoint.verify.ts, which re-derives uniqueness with its own independent
+ * partitioner rather than trusting this table.
+ *
+ * L is capped at 10 by the UI, not by the maths: Board.tsx renders a fixed
+ * `repeat(cols, 46px)` grid with no responsive scaling, so cols = L+2 = 12 is
+ * already the widest board this game has shipped (650px, vs 546px previously).
+ * Longer runs verify clean and reach higher par — L=13/k=3 gives par 8 per
+ * block, and two such blocks would reach par 16 — but they need 15-16 columns
+ * (~860px) and would overflow. Revisit only alongside a responsive Board.
+ */
+const CUTPOINT_TUPLES: Record<number, number[][]> = {
+  10: [[3, 5, 7], [3, 5, 8], [3, 6, 8], [4, 6, 8]],
+}
+
+/**
+ * How many distinct run-partitions does this single-colour value multiset
+ * admit? Stops as soon as `cap` is reached — the builder only ever needs
+ * "exactly one or more than one", so this never enumerates the full space.
+ */
+function countRunPartitions(values: number[], cap = 2): number {
+  const counts = new Map<number, number>()
+  for (const v of values) counts.set(v, (counts.get(v) ?? 0) + 1)
+  let found = 0
+  const recurse = (): boolean => {
+    let lo = Infinity
+    for (const [v, n] of counts) if (n > 0 && v < lo) lo = v
+    if (lo === Infinity) { found++; return found >= cap }
+    // The smallest remaining value must start its run — nothing below it exists.
+    for (let len = 3; ; len++) {
+      let ok = true
+      for (let i = 0; i < len; i++) if ((counts.get(lo + i) ?? 0) <= 0) { ok = false; break }
+      if (!ok) break
+      for (let i = 0; i < len; i++) counts.set(lo + i, counts.get(lo + i)! - 1)
+      const stop = recurse()
+      for (let i = 0; i < len; i++) counts.set(lo + i, counts.get(lo + i)! + 1)
+      if (stop) return true
+    }
+    return false
+  }
+  recurse()
+  return found
+}
+
+/**
+ * Which pieces keep their board cells. Consecutive pieces SHARE the duplicated
+ * column (piece i ends on the value piece i+1 starts on), so no two adjacent
+ * pieces can both stay — the cheapest layout is a maximum-weight independent
+ * set on a path, weights = piece lengths. Solved exactly by DP, so par is
+ * deterministic. Non-adjacent kept pieces are always separated by >=1 empty
+ * column (cuts are >=2 apart), so each stays its own valid row segment.
+ */
+function maxWeightKeep(lens: number[]): number[] {
+  const n = lens.length
+  const dp = new Array<number>(n + 2).fill(0)
+  for (let i = n - 1; i >= 0; i--) dp[i] = Math.max(dp[i + 1], lens[i] + dp[i + 2])
+  const keep: number[] = []
+  for (let i = 0; i < n;) {
+    if (lens[i] + dp[i + 2] >= dp[i + 1]) { keep.push(i); i += 2 } else i++
+  }
+  return keep
+}
+
+export interface CutPointBlock { color: Tile['c']; s: number; L: number; cuts: number[] }
+
+export interface CutPointBuild extends ArchetypeResult {
+  goal: Map<string, [number, number]>
+  blocks: CutPointBlock[]
+  /** Per block, the value-intervals of the unique correct partition. */
+  pieces: [number, number][][]
+}
+
+/** Cut-point puzzles ship at MEDIUM only — see the par discussion in CLAUDE.md.
+ * par is 12 here against medium's base 16; hard/extreme are structurally out of
+ * reach (they would need 3+ colour blocks, which destroys uniqueness). */
+function cutPointParamsFor(diff: Difficulty): { L: number; blocks: number } | null {
+  switch (diff) {
+    case 'medium': return { L: 10, blocks: 2 }
+    default: return null
+  }
+}
+
+export function buildCutPoint(diff: Difficulty): CutPointBuild | null {
+  const p = cutPointParamsFor(diff)
+  if (!p) return null
+  return buildCutPointAt(p.L, p.blocks)
+}
+
+/** L/blockCount-parameterized cut-point core, exported for verification. */
+export function buildCutPointAt(L: number, blockCount: number): CutPointBuild | null {
+  const tuples = CUTPOINT_TUPLES[L]
+  // blockCount > 2 is REFUSED, not clamped: a third colour at shared values
+  // makes groups possible, which voids the uniqueness argument this whole
+  // archetype's trap rests on. See fact 3 above.
+  if (!tuples || blockCount < 1 || blockCount > 2) return null
+  if (L > 13 || L < 5) return null
+
+  const colors = shuffle(ALL_COLORS).slice(0, blockCount)
+  const blocks: CutPointBlock[] = colors.map(color => {
+    const s = randomInt(1, 13 - L + 1)
+    const offsets = tuples[randomInt(0, tuples.length - 1)]
+    return { color, s, L, cuts: offsets.map(o => s + o - 1) }
+  })
+
+  // Per block: the pieces of the intended partition, and which of them stay put.
+  const plans = blocks.map(b => {
+    const pieces: [number, number][] = []
+    let prev = b.s
+    for (const c of b.cuts) { pieces.push([prev, c]); prev = c }
+    pieces.push([prev, b.s + b.L - 1])
+    const lens = pieces.map(([a, z]) => z - a + 1)
+    return { b, pieces, keep: maxWeightKeep(lens) }
+  })
+
+  // THE GATE THIS ARCHETYPE LIVES OR DIES ON: each colour must admit EXACTLY
+  // one run-partition. Two colours cannot interact (no group is possible), so
+  // the whole puzzle's solution count is the product — and must also be 1.
+  for (const plan of plans) {
+    const values = [
+      ...Array.from({ length: plan.b.L }, (_, i) => plan.b.s + i),
+      ...plan.b.cuts,
+    ]
+    if (countRunPartitions(values, 2) !== 1) return null
+  }
+
+  const rebuiltCount = plans.reduce((n, plan) => n + (plan.pieces.length - plan.keep.length), 0)
+  const rows = 1 + blockCount + rebuiltCount + 1
+  const cols = L + 2
+
+  const grid: Grid = Array.from({ length: rows }, () => Array(cols).fill(null))
+  plans.forEach((plan, bi) => {
+    for (let o = 0; o < L; o++) grid[1 + bi][1 + o] = makeTile(plan.b.s + o, plan.b.color, 0)
+  })
+
+  // (a) every board row is a complete, already-valid run.
+  if (!validateGrid(grid)) return null
+
+  const rack: Tile[] = []
+  for (const plan of plans) for (const c of plan.b.cuts) rack.push(makeTile(c, plan.b.color, 1))
+
+  // (c) the rack is not a puzzle on its own. Cuts are >=2 apart so no three
+  // rack values are consecutive, and 2 colours can never form a group.
+  if (formsValidSetAlone(rack)) return null
+
+  const boardTiles = grid.flat().filter((t): t is Tile => t !== null)
+  const allTiles = [...boardTiles, ...rack]
+
+  // (b) board + rack really is partitionable.
+  if (!solveBagM2(allTiles).solvable) return null
+
+  // (d) the obvious move must fail. Here that is stronger than usual: no rack
+  // tile has ANY tempting board placement, since a duplicate cannot extend the
+  // run it duplicates. Searched exhaustively rather than argued.
+  const search = existsNoRelocationWin(grid, rack)
+  if (search.win || search.exhausted) return null
+
+  // Goal layout: kept pieces hold their board cells (gaps open between them);
+  // every other piece is rebuilt on its own fresh row.
+  const windows: WindowSpec[] = []
+  const cells: [number, number][][] = []
+  let freshRow = 1 + blockCount
+  plans.forEach((plan, bi) => {
+    plan.pieces.forEach(([a, z], pi) => {
+      windows.push({ type: 'run', color: plan.b.color, start: a, length: z - a + 1 })
+      if (plan.keep.includes(pi)) {
+        cells.push(Array.from({ length: z - a + 1 }, (_, i): [number, number] => [1 + bi, 1 + (a - plan.b.s) + i]))
+      } else {
+        const r = freshRow++
+        cells.push(Array.from({ length: z - a + 1 }, (_, i): [number, number] => [r, 1 + i]))
+      }
+    })
+  })
+
+  // (e) par + witness. Every duplicated value has one copy on the board and one
+  // in the rack, so this is the first SHIPPED archetype where Step 6b's pairing
+  // minimisation does real work — it decides which copy keeps the board cell.
+  const res = bindMinCostGoal(windows, grid, rack, (wi, i) => cells[wi][i])
+  if (!res || !res.reachedGoal || !res.validGoal) return null
+
+  return {
+    grid,
+    rack,
+    allTiles,
+    minMoves: res.moves,
+    goal: res.goal,
+    blocks,
+    pieces: plans.map(plan => plan.pieces),
+  }
+}

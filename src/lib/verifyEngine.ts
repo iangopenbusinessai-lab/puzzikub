@@ -1,6 +1,6 @@
 import type { Tile, Grid, Difficulty } from '../types'
 import { makeTile } from '../types'
-import { solveBag } from './solver'
+import { solveBag, solveBagM2 } from './solver'
 import { validateGrid, getInvalidCells, getNewlyValidCells, isValidRun, isValidGroup } from './validator'
 import {
   buildGroupsToRuns,
@@ -495,6 +495,14 @@ for (const arch of ARCHETYPES) {
 console.log('')
 console.log('=== PLAYER-FACING generatePuzzle() — with internal retry + 50/50 direction ===')
 const dirTally: Record<string, number> = {}
+// m=2 Step 11: the game now legitimately ships DUPLICATE-BEARING puzzles (the
+// cut-point archetype), and the m=1 solveBag rejects any duplicate outright —
+// so it is no longer the right oracle for generatePuzzle() output. The bag
+// check below uses solveBagM2, but the differential value of keeping solveBag
+// alive (see its retirement note in solver.ts) is PRESERVED, not discarded:
+// on every duplicate-FREE puzzle the two solvers must still agree, and that is
+// asserted here rather than assumed.
+let differentialChecked = 0, differentialDisagreed = 0
 for (const diff of difficulties) {
   let ok = 0
   const GENS = 40
@@ -504,7 +512,14 @@ for (const diff of difficulties) {
     dirTally[puzzle.archetypeId ?? '?'] = (dirTally[puzzle.archetypeId ?? '?'] ?? 0) + 1
     const boardTiles = puzzle.grid.flat().filter((t): t is Tile => t !== null)
     const allTiles = [...boardTiles, ...puzzle.rack]
-    if (validateGrid(puzzle.grid) && solveBag(allTiles).solvable && !isTrivial(puzzle.grid, puzzle.rack)) ok++
+    const labels = new Set(allTiles.map(t => `${t.n}_${t.c}`))
+    const hasDuplicate = labels.size !== allTiles.length
+    const m2 = solveBagM2(allTiles).solvable
+    if (!hasDuplicate) {
+      differentialChecked++
+      if (solveBag(allTiles).solvable !== m2) differentialDisagreed++
+    }
+    if (validateGrid(puzzle.grid) && m2 && !isTrivial(puzzle.grid, puzzle.rack)) ok++
   }
   console.log(`${diff}: ${ok}/${GENS} generatePuzzle() calls produced a fully valid, non-trivial puzzle`)
 }
@@ -516,6 +531,9 @@ for (const [id, n] of Object.entries(dirTally))
 // adds a third internal category (runs-to-groups-decoy) and is not required here.
 check('both base directions are generated',
   (dirTally['groups-to-runs'] ?? 0) > 0 && (dirTally['runs-to-groups'] ?? 0) > 0)
+console.log(`solveBag vs solveBagM2 on the ${differentialChecked} duplicate-free puzzles above: ${differentialDisagreed} disagreements`)
+check('solveBag and solveBagM2 still agree on every duplicate-free generated puzzle',
+  differentialChecked > 0 && differentialDisagreed === 0)
 
 console.log('')
 console.log(`=== SELF-TESTS: ${pass} passed, ${fail} failed ===`)

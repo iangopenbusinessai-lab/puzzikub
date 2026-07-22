@@ -440,6 +440,139 @@ duplicate-defusal risk remains entirely Step 11's to prove from scratch**, per
 actually gain a second copy, so it needs its own trap proof and cannot inherit
 this one.
 
+**m=2 MIGRATION — Step 11 CLOSED: the CUT-POINT ARCHETYPE ships. This is the
+payoff the entire migration existed for — the first construction that genuinely
+REQUIRES duplicate tiles.** `buildCutPoint(diff)` / `buildCutPointAt(L, blocks)`
+in `archetypes.ts`; harness `src/lib/cutpoint.verify.ts` (`npx tsx
+src/lib/cutpoint.verify.ts`, **36 passed / 0 failed**). Wired into
+`generator.ts` as its own band, **MEDIUM ONLY**, hidden `archetypeId:
+'cut-point'`, `CUTPOINT_PROB` 0.25 (measured emission ~25-28%).
+
+*The construction:* board = one already-valid run per colour (2 colours, values
+`s..s+L-1`, L=10, one row each). Rack = **second copies** at 3 interior cut
+values per colour. The player must break each apparently-finished run so every
+piece is still a valid run (≥3). Board 8×12, 26 tiles, rack 6, **par 12**.
+
+***THE DESIGN QUESTION THE MIGRATION DOC LEFT OPEN IS ANSWERED BY MEASUREMENT,
+AND THE ANSWER IS "ONE SHAPE, NOT TWO".*** The doc asked whether adjacent
+duplicates (two-run answer) and spread duplicates (three-run answer) should ship
+as one archetype or two calibrated constructions. Neither: **only SPREAD ships,
+because ADJACENT is structurally inferior, not merely different.** The
+discriminator is SOLUTION UNIQUENESS, measured over every (d1,d2) at each L:
+```
+   L= 8:  SPREAD solvable= 3 unique= 3   ADJACENT solvable= 5 unique=1
+   L=10:  SPREAD solvable=10 unique= 7   ADJACENT solvable= 7 unique=0
+   L=11:  SPREAD solvable=15 unique= 6   ADJACENT solvable= 8 unique=0
+   L=12:  SPREAD solvable=21 unique= 3   ADJACENT solvable= 9 unique=0
+   L=13:  SPREAD solvable=28 unique= 1   ADJACENT solvable=10 unique=0
+```
+Adjacent duplicates are **never** uniquely solvable at any L≥10. That matters
+because of the next point.
+
+***UNIQUENESS IS THE TRAP — and it is a strictly stronger trap than
+decoy/red-herring/composed's.*** A bag of ONE colour admits no group at all
+(`isValidGroup` needs ≥3 distinct colours), so every part of the answer is a
+run; a uniquely-partitionable bag therefore makes **every** wrong cut fatal.
+Where decoy/red-herring/composed each verify a handful of specific tempting
+commitments, this is verified EXHAUSTIVELY over every run a player could commit
+to. Per Step 10's explicit instruction the trap proof is built **from scratch**
+— it inherits nothing from the existing traps, whose unsolvability arguments are
+m=1 facts about different constructions:
+```
+  TRAP detail: wrong commitments tested=1600, ALL fatal=true
+               true parts tested=200,        ALL survive=true
+```
+
+***THE TWO-COLOUR CAP IS LOAD-BEARING, NOT A TUNING KNOB.*** Two colours can
+never form a group, so the bag stays runs-only and the puzzle's solution count
+is the PRODUCT of the per-colour counts. A third colour at shared values makes
+groups available, explodes the solution space and destroys uniqueness — and with
+only 13 values, three blocks of the length this needs cannot avoid sharing.
+`buildCutPointAt` **REFUSES** `blockCount > 2` rather than clamping it. Do not
+"generalise" this to more colours.
+
+*What is PROVEN (real executed output, `cutpoint.verify.ts` 36/0). The harness
+re-derives everything INDEPENDENTLY of the builder — its own brute-force
+partitioner, its own candidate-run enumeration, its own par-over-all-layouts
+search, its own DROP-reducer transcription:*
+- **25/25 builds**: (a)-(e) all 25, **UNIQUE=25**, **TRAP=25**, **NODUP=25**,
+  `pars={12}`, `grids={8x12}`, ALL=25.
+- **NODUP is the sharpest statement that this needed the migration**: the m=1
+  `solveBag` **REJECTS** every one of these bags outright while `solveBagM2`
+  solves them. This archetype could not have existed before m=2.
+- **Step 6b's pairing minimisation does real work here for the FIRST time in a
+  shipped archetype** (previously only exercised in isolated tests): every
+  duplicated value has one copy on the board and one in the rack, so the binding
+  decides which copy keeps the board cell. `candidates=64 enumerated=[6 labels]
+  spread=5` — **6 duplicate labels, exactly at `MAX_ENUMERATED_DUPLICATES`=6**,
+  and `spread>0` on 12/12 builds, i.e. the pairing genuinely mattered every time.
+- **par is honest, not merely self-consistent**: builder par == **min over EVERY
+  layout** (independently re-searched over all independent sets of pieces that
+  could keep their board cells) == a real simulated win, 6/6:
+  `par=12 minOverAllLayouts=12 simulated=12 validateGrid win`.
+- **The distinguishing property**: starting board already valid 10/10, and
+  **every rack tile has ZERO obvious spots** 10/10 — a duplicate can never
+  legally extend the run it duplicates. Unlike every other archetype there is
+  nothing to "fill in"; the only way to win is to DISMANTLE something that
+  already validates.
+- The doc's own worked example reproduces: red 1..8 + dups 3 and 6 →
+  **solutions=1** → `[1..3][3..6][6..8]`, and `solveBagM2` over all 28 pairs
+  returns exactly the documented `(2,3)(3,4)(3,5)(3,6)(4,5)(4,6)(5,6)(6,7)`.
+- Timing ~5 ms/build. Emission: cut-point 56/200 at medium, base archetypes
+  still 73/71; **leaked into easy/hard/extreme: 0**.
+
+***MEDIUM ONLY — and the two caps that force it are real, measured, and should
+not be quietly "fixed" later.***
+1. **UI WIDTH, the binding constraint.** `Board.tsx` renders a FIXED
+   `repeat(cols, 46px)` grid with no responsive scaling or overflow handling:
+   width = `cols*46 + (cols-1)*6 + 32`. The previous widest board ever shipped
+   was 10 cols = 546px. L=10 → 12 cols = **650px**, already the widest this game
+   has shipped. Longer runs verify perfectly clean and reach higher par —
+   **L=13/k=3 gives par 8 per block, and two such blocks reach par 16, an exact
+   match for medium's par** — but need 15-16 cols (~860px) and would overflow.
+   **Revisit only alongside a responsive Board**, not by bumping the table.
+2. **UNIQUENESS vs PAR are in direct tension.** High par needs wide middle
+   pieces; wide middles break uniqueness. Under uniqueness, max par per block is
+   5 with 2 duplicates and 8 with 3 (measured across L=7..13, par computed as
+   min over all layouts). Hard (20) and extreme (24-27) are **structurally
+   unreachable** for this archetype — they would need 3+ colour blocks, which
+   destroys uniqueness per the cap above.
+
+***KNOWN LIMITATION, STATED PLAINLY: par UNDERSTATES this archetype's
+difficulty.*** par measures MOVES; this puzzle's difficulty is SEARCH — finding
+where to cut. par 12 sits below medium's base 16 while the reasoning is
+arguably harder. Precedent exists for intra-tier par spread (hard: base 20,
+decoy 22, red herring 21, composed 24), so 12-vs-16 is acceptable, but do not
+read par 12 as "easier than a base medium puzzle". Also honest: the two colour
+blocks are INDEPENDENT sub-puzzles (no group can couple them) — the player
+solves the same insight twice. That is more work, not deeper work, and it is
+what makes par additive; it is not claimed as coupling (see COUPLED_DESIGN.md
+for why genuine coupling is a separate unsolved problem).
+
+*One deliberate change to an existing harness, worth knowing about:*
+`verifyEngine.ts`'s player-facing `generatePuzzle()` bag check ran on the m=1
+`solveBag`, which **rejects any duplicate outright** — so it would have scored
+every cut-point puzzle as invalid. It now checks with `solveBagM2`, and the
+differential value of keeping `solveBag` alive is **preserved rather than
+discarded**: on every duplicate-FREE generated puzzle the two solvers must still
+agree, now asserted explicitly (`149 duplicate-free puzzles, 0 disagreements`).
+`verifyEngine` is 52 → **53 checks** for that reason.
+
+*Full suite after Step 11, nothing regressed:* `cutpoint` **36/0** ·
+`verifyEngine` **53/0** + invariants (a)-(d) all passed, all four tiers 40/40 ·
+`decoy` **23/0** · `redherring` **25/0** · `composed` **32/0** ·
+`mixedGoalPlanner` **37/0** · `storage` **37/0** · `dragIdentity` **29/0** ·
+`pairingMin` **31/0** with all seven shipped par numbers still EXACT. Strict
+build gate `npm run build` (`tsc -b && vite build`) succeeds: `106 modules
+transformed, built in 174ms`.
+
+*Still open after Step 11:* **Step 12** (end-to-end pass, a real browser
+playthrough of a duplicate puzzle, and folding the m=2 model into this file's
+main sections) — note the `handlePlay` Library bug below still blocks
+"load a saved puzzle and check X" verification. The L≤10 UI cap above is the
+one place where a straightforward future win exists (responsive Board → L=13 →
+par 16). COUPLED still needs its contested-resource redesign.
+
 **✅ BUILD IS UNBLOCKED — standalone build-fix session, NOT a numbered migration
 step.** `npm run build` (`tsc -b && vite build`) had failed ever since Step 1 added
 `Tile.id`, on 2 errors in `solveBag`'s `reconstructAssignment`

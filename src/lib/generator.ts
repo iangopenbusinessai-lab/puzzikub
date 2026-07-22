@@ -1,5 +1,5 @@
 import type { Difficulty, Puzzle } from '../types'
-import { buildComposed, buildDecoy, buildRedHerring, buildGroupsToRuns, buildRunsToGroups, type ArchetypeType } from './archetypes'
+import { buildComposed, buildCutPoint, buildDecoy, buildRedHerring, buildGroupsToRuns, buildRunsToGroups, type ArchetypeType } from './archetypes'
 
 const BUILDERS: Record<ArchetypeType, (diff: Difficulty) => ReturnType<typeof buildGroupsToRuns>> = {
   'groups-to-runs': buildGroupsToRuns,
@@ -24,6 +24,17 @@ const DECOY_PROB: Partial<Record<Difficulty, number>> = { hard: 0.20, extreme: 0
 const REDHERRING_PROB: Partial<Record<Difficulty, number>> = { hard: 0.14, extreme: 0.22 }
 
 /**
+ * The cut-point layer (m=2 Step 11) — MEDIUM ONLY, and deliberately its own
+ * band rather than a fourth entry in the trap sequence above: it is not a
+ * runs-to-groups board with a tempting tile, it is a different puzzle entirely
+ * (duplicate second copies that force an already-valid run to be cut apart).
+ *
+ * It cannot collide with the trap bands because those are hard/extreme only and
+ * this is medium only, so the two roll ranges never apply to the same tier.
+ */
+const CUTPOINT_PROB: Partial<Record<Difficulty, number>> = { medium: 0.25 }
+
+/**
  * DEV-ONLY escape hatch for playtesting a specific variant. Not reachable from
  * any UI control — PlayScreen only honours it when the developer deliberately
  * types ?forceArchetype=... into the URL. See FORCE_TYPES below.
@@ -34,10 +45,11 @@ export type ForceType =
   | 'decoy'
   | 'red-herring'
   | 'composed'
+  | 'cut-point'
 
 /** The accepted values, for validating untrusted input (e.g. a query param). */
 export const FORCE_TYPES: readonly ForceType[] = [
-  'pure-groups-to-runs', 'pure-runs-to-groups', 'decoy', 'red-herring', 'composed',
+  'pure-groups-to-runs', 'pure-runs-to-groups', 'decoy', 'red-herring', 'composed', 'cut-point',
 ]
 
 export function isForceType(v: string | null | undefined): v is ForceType {
@@ -70,7 +82,14 @@ export function generatePuzzle(diff: Difficulty, forceType?: ForceType): Puzzle 
       case 'decoy': return generateDecoy(diff)
       case 'red-herring': return generateRedHerring(diff)
       case 'composed': return generateComposed(diff)
+      case 'cut-point': return generateCutPoint(diff)
     }
+  }
+
+  const cutPointP = CUTPOINT_PROB[diff] ?? 0
+  if (cutPointP > 0 && Math.random() < cutPointP) {
+    const cut = generateCutPoint(diff)
+    if (cut) return cut // else fall through to the ordinary archetypes
   }
 
   const roll = Math.random()
@@ -90,6 +109,28 @@ export function generatePuzzle(diff: Difficulty, forceType?: ForceType): Puzzle 
   const first: ArchetypeType = Math.random() < 0.5 ? 'groups-to-runs' : 'runs-to-groups'
   const second: ArchetypeType = first === 'groups-to-runs' ? 'runs-to-groups' : 'groups-to-runs'
   return generateArchetype(first, diff) ?? generateArchetype(second, diff)
+}
+
+/** Cut-point puzzles (m=2 Step 11): duplicate second copies force an
+ * already-valid run to be cut apart. Same hidden-tag convention as the trap
+ * layers — nothing player-facing reveals that duplicates are the mechanic, or
+ * where the cut points are. */
+function generateCutPoint(diff: Difficulty): Puzzle | null {
+  for (let i = 0; i < 40; i++) {
+    const result = buildCutPoint(diff)
+    if (!result) continue
+    return {
+      id: `gen_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      name: `${diff} puzzle`,
+      diff,
+      grid: result.grid,
+      rack: result.rack,
+      optimalMoves: result.minMoves,
+      generated: true,
+      archetypeId: 'cut-point',
+    }
+  }
+  return null
 }
 
 /** Composed puzzles (decoy + red herring on one board), same hidden-tag
