@@ -22,6 +22,23 @@ base must always be '/puzzikub/' — never change this, never remove it.
 - Person reports bugs via: browser screenshots, browser console output,
   PowerShell terminal output (Windows environment).
 
+### THE BUILD GATE — STANDING INSTRUCTION FOR EVERY SESSION
+**The only build gate that counts is `npm run build` (= `tsc -b && vite
+build`). Never substitute the narrower `tsc -p tsconfig.app.json`, and never
+substitute bare `npx tsc --noEmit`.** Learned the hard way: the build stayed
+BROKEN for several consecutive sessions after Step 1 added `Tile.id`, because
+each session checked only a narrower target and reported "tsc clean". Two facts
+make the narrow checks lie:
+- Root `tsconfig.json` has `files: []` + project references, so `npx tsc
+  --noEmit` alone typechecks **nothing** and always "passes".
+- `tsc -p tsconfig.app.json` covers app sources but is not what `npm run
+  build` runs, so it can pass while the real build fails.
+
+`npm run build` is also the only check that exercises the Vite production
+build itself. Run it before every commit that touches `src/`. And per the
+ANTI-ILLUSION RULE below, a green build still proves only that the code
+compiles — never that any logic is correct.
+
 ## Debugging protocol — MANDATORY
 
 1. Read relevant files first. Never assume file contents.
@@ -82,6 +99,145 @@ tool to the kind of work:
 - Styling: inline style={{}} props only — index.css for keyframes and
   CSS custom properties (theme vars) only
 - Never import React hooks inside src/lib/
+
+---
+
+## m=2 ARCHITECTURE — CURRENT TRUTH (read this before any src/lib/ work)
+*Consolidated at Step 12 close-out. **The m=2 migration is COMPLETE** (Steps
+1-12). The dated step-by-step log further down is HISTORY, kept for its
+rationale and measured numbers — where it disagrees with this section, THIS
+SECTION WINS.*
+
+### 1. The tile model
+Every tile carries a stable identity, because `{n,c}` alone cannot tell the two
+copies of a (value,colour) pair apart.
+```ts
+TILE_COPIES = 2                         // the copy count, named in ONE place
+makeTile(n, c, copy = 0): Tile          // the ONLY way to mint a tile
+Tile = { n, c, id }                     // id = `${n}_${c}_${copy}`, e.g. "5_r_0"
+TileSpec = Pick<Tile,'n'|'c'>           // a tile REQUEST, no identity yet
+```
+**The id scheme is STRUCTURED, not opaque, and that is load-bearing.** Because
+`id` is a pure function of `(n, c, copy)` it survives a JSON round-trip with no
+remap table, which is exactly what let `storage.ts` migrate old id-less saves by
+re-minting from `(n, c, occurrenceIndex)` — scanned grid row-major, then rack.
+Do not replace it with a uuid or a global counter.
+
+Rules that must not be broken:
+- **Never construct a tile literal.** `{ n, c }` object literals are gone from
+  `src/lib/`; always `makeTile`.
+- **Components emit `TileSpec`, never `Tile`.** Only the editor hook can mint,
+  because the copy index is puzzle-scoped. `TilePicker` deliberately cannot.
+- **The editor caps at `TILE_COPIES`** (`src/lib/editorRules.ts`); a third copy
+  is refused with a visible message, never silently dropped.
+- **Ids are unique within a puzzle**, which is what makes `key={tile.id}` legal
+  in `Rack.tsx`.
+
+### 2. The solvers — and why there are two
+```ts
+solveBag(tiles)    // m=1: rejects ANY duplicate outright
+solveBagM2(tiles)  // m<=2: the real oracle. assignment keyed by tile.id
+```
+`solveBagM2` is the m=2 partition oracle: per-colour state is an unordered pair
+of saturating run lengths (10 states/colour); at each value it chooses 0-2
+groups, then the remaining copies extend runs; bags with more than `TILE_COPIES`
+of a label are rejected up front. Its `assignment` is keyed by **`tile.id`** —
+the old `${n}_${c}` key collided on duplicates. ~0.01 ms/call.
+
+**ALL production code calls `solveBagM2`.** `solveBag` is called by NO builder.
+
+***`solveBag` IS DELIBERATELY NOT DELETED — do not "clean it up".*** It is kept
+as an INDEPENDENT DIFFERENTIAL ORACLE. Every m=1-shaped bag is a strict subset
+of what `solveBagM2` handles, so the two must agree on every duplicate-free bag,
+and several harnesses check builds that way — a solver grading its own homework
+would be worthless. That agreement is measured, not assumed (5,400 bags in the
+Step 10a probe; re-checked live on every `verifyEngine` run, most recently
+*150 duplicate-free generated puzzles, 0 disagreements*). Retire it only when no
+harness needs an independent oracle. Note the cut-point archetype **cannot** use
+it at all — `solveBag` rejects its bags outright, which is precisely the
+NODUP proof that the archetype requires m=2.
+
+### 3. The cost model (Step 6) — how par is computed
+For a goal layout (an injective tile→cell map) the misplaced tiles form a
+functional graph whose components are simple paths and simple cycles, so:
+```
+cost(goal) = boardTiles + rack − fixed(goal) − cycles(goal)
+```
+(a k-cycle unwinds in k−1 swaps; a k-path costs k). This holds for HETEROGENEOUS
+layouts — windows may independently be runs or groups, in any mixture — because
+it needs only one current cell and one target cell per tile.
+
+**Under m=2 a goal is not fully determined by the window specs**, because a
+window slot saying "red 4" can be filled by either copy. Therefore:
+- `bindWindowTiles(windows, bag, pinned?)` binds each slot to a CONCRETE bag
+  tile (never mints one); its default rule is **ascending id order**, chosen so
+  the binding depends only on ids, not on bag/scan order.
+- **`bindMinCostGoal(windows, grid, rack, cellOf)` is what builders should
+  call.** It enumerates the 2^d copy-pairings for the `d` duplicate labels with
+  **at least one copy on the board**, scores each with `mixedLayoutMoves`, and
+  returns the CHEAPEST. Ties go to the ascending-id default, so a puzzle with no
+  duplicates yields exactly one candidate and behaves identically to the
+  pre-Step-6 code — which is why adopting it changed no shipped par.
+- **Duplicates with BOTH copies in the rack are skipped** as provably free: a
+  rack tile has no cell, so it can be neither `fixed` nor on a cycle.
+- **The guard: `d > MAX_ENUMERATED_DUPLICATES` (6) THROWS `PairingBlowupError`**
+  naming the offending labels. It is loud on purpose — silently degrading to a
+  128-binding search would hide a construction bug behind a performance cliff.
+  **The cut-point archetype sits at exactly d=6**, so lowering this constant
+  breaks it; `cutpoint.verify.ts` pins the value.
+
+Known scope limit, unchanged: par is exact for the goal family a builder aims
+at, so it remains an **upper bound** on the true optimum over every conceivable
+winning layout. Full-win BFS is infeasible at real tile counts. Player-facing UI
+says "par", never "optimal".
+
+### 4. The archetypes now shipping
+| archetype | tiers | par | mechanic |
+|---|---|---|---|
+| `groups-to-runs` | all | 11/16/20/~24 | board = value groups, goal = colour runs |
+| `runs-to-groups` | all | 11/16/20/20 | the mirror |
+| `runs-to-groups-decoy` | hard, extreme | 22 / 25 | ONE tempting run-extension that dead-ends |
+| `runs-to-groups-redherring` | hard, extreme | 21 / 24 | TWO tempting extenders, only one correct |
+| `runs-to-groups-composed` | hard, extreme | 24 / 27 | decoy + red herring on one board, coupled |
+| `cut-point` | **medium only** | **12** | **duplicates force valid runs to be CUT APART** |
+
+`archetypeId` is internal only — nothing player-facing names the mechanic.
+Dev-only `?forceArchetype=` accepts all of them (each still tier-restricted).
+
+**The cut-point archetype is the payoff of this whole migration** — the first
+construction that genuinely requires duplicate tiles. Board = one already-valid
+run per colour; rack = second copies at interior values; the player must break
+runs that already validate. Three facts fix its design, all measured:
+1. **SPREAD cuts only, never ADJACENT.** The migration doc asked whether the
+   two-run (adjacent duplicates) and three-run (spread) shapes should ship as
+   one archetype or two. Neither: adjacent duplicates are **never uniquely
+   solvable at any L≥10**, so only spread ships.
+2. **Uniqueness IS the trap.** One colour admits no group, so every part of the
+   answer is a run, and a uniquely-partitionable bag makes EVERY wrong cut
+   fatal — a stronger trap than decoy/red-herring/composed, which each check a
+   handful of specific commitments.
+3. **At most TWO colour blocks, refused above that.** Two colours can never form
+   a group, keeping the bag runs-only so solution counts multiply. A third
+   colour enables groups and destroys uniqueness.
+
+Its two caps are real and measured: **UI width** (`Board.tsx` is a fixed
+`repeat(cols,46px)` grid with no responsive scaling — L=13 would reach par 16
+but needs ~860px and would overflow) and **uniqueness-vs-par tension**, which
+makes hard/extreme structurally unreachable. **Known limitation: par understates
+this archetype** — par counts moves, but its difficulty is search.
+
+### 5. Open items
+- **🐞 Library "Play" button is still BROKEN** (see the detailed note below).
+  `App.tsx`'s `handlePlay(_puzzle)` discards its argument, so clicking Play on a
+  saved puzzle shows a freshly generated one. **Deliberately still unfixed** —
+  it is a real feature change (threading a puzzle into `PlayScreen`), its own
+  session. It does NOT block playtesting: fresh puzzles and
+  `?forceArchetype=` reach every archetype without touching Library.
+- A responsive `Board.tsx` is the one straightforward future win — it would
+  unlock cut-point at L=13 / par 16.
+- COUPLED still needs its contested-resource redesign (`COUPLED_DESIGN.md`).
+- `dup-test` may still sit in real `puzzikub_library` localStorage; delete from
+  the Library screen when unwanted.
 
 ---
 
@@ -573,6 +729,81 @@ main sections) — note the `handlePlay` Library bug below still blocks
 one place where a straightforward future win exists (responsive Board → L=13 →
 par 16). COUPLED still needs its contested-resource redesign.
 
+**m=2 MIGRATION — Step 12 CLOSED. THE MIGRATION IS COMPLETE (Steps 1-12).**
+See "m=2 ARCHITECTURE — CURRENT TRUTH" near the top of this file for the
+consolidated model; everything below this point is history.
+
+*FULL HARNESS SWEEP — all nine, real pasted counts, one place:*
+```
+verifyEngine.ts             === SELF-TESTS:  53 passed, 0 failed ===
+                            === INVARIANTS (a)-(d): ALL PASSED ===
+decoy.verify.ts             === SELF-CHECKS: 23 passed, 0 failed ===
+redherring.verify.ts        === SELF-CHECKS: 25 passed, 0 failed ===
+composed.verify.ts          === SELF-CHECKS: 32 passed, 0 failed ===
+cutpoint.verify.ts          === SELF-CHECKS: 36 passed, 0 failed ===
+mixedGoalPlanner.verify.ts  === SELF-CHECKS: 37 passed, 0 failed ===
+pairingMin.verify.ts        === SELF-CHECKS: 31 passed, 0 failed ===
+storage.verify.ts           === SELF-CHECKS: 37 passed, 0 failed ===
+dragIdentity.verify.ts      === SELF-CHECKS: 29 passed, 0 failed ===
+                                    TOTAL: 303 checks, 0 failures
+```
+*Par — all seven original numbers plus cut-point, `actual [expected]`:*
+```
+  easy       (runs-to-groups)   11 [11]      medium  16 [16]     hard 20 [20]
+  decoy      hard 22 [22]   extreme 25 [25]
+  redherring hard 21 [21]   extreme 24 [24]
+  composed   hard 24 [24]   extreme 27 [27]
+  cut-point  medium 12 [12]        --> ALL EIGHT EXACT
+```
+
+***REAL BROWSER PLAYTHROUGH — a cut-point puzzle played to an actual win.***
+Reached through ordinary gameplay via the dev override
+(`?forceArchetype=cut-point`, then click **medium**); Library was not involved,
+so the `handlePlay` bug did not block it. Puzzle generated live:
+```
+board  blue 4..13 (r1c1..c10)   red 1..10 (r2c1..c10)   -- all copy 0
+rack   6_b_1 9_b_1 11_b_1 4_r_1 6_r_1 8_r_1             -- ALL copy 1
+       (blue cuts 6/9/11, red cuts 4/6/8)               par 12
+```
+Solved in **exactly par**, final state read back from live React props and
+INDEPENDENTLY re-validated in-page (segments recomputed from the DOM and each
+checked as a run), not judged from the screenshot:
+```
+r1:[6b#0 7b#0 8b#0 9b#0] VALID    r1:[11b#0 12b#0 13b#0] VALID
+r2:[1r#0 2r#0 3r#0 4r#0] VALID    r2:[6r#0 7r#0 8r#0]    VALID
+r3:[4b#0 5b#0 6b#1]      VALID    r3:[9b#1 10b#0 11b#1]  VALID
+r4:[4r#1 5r#0 6r#1]      VALID    r4:[8r#1 9r#0 10r#0]   VALID
+every duplicate pair SPLIT ACROSS TWO RUNS (6_b,9_b,11_b,4_r,6_r,8_r)
+tiles=26  rackEmpty=true  allSegmentsValid=true
+banner: "cleared ✓ perfect!  12 moves"
+```
+That last line is the whole migration in one screenshot: **both copies of six
+(value,colour) pairs on the board at once, each pair split across two different
+runs** — impossible before m=2.
+
+***METHOD NOTE THAT WILL SAVE THE NEXT BROWSER SESSION HOURS.*** Automated
+drags are only reliable when they are SHORT and VERTICAL. Long or diagonal
+`left_click_drag` calls silently drop on the WRONG cell, because `PlayScreen`'s
+mouseup handler closes over `hoverTarget` state and its effect re-subscribes on
+`[drag, hoverTarget]` — if React has not re-rendered before mouseup, the STALE
+target is used. Two ways through:
+- Choose a goal layout whose board moves are all vertical (legal — any valid
+  final arrangement wins, the layout is the player's choice).
+- Or drive it deterministically: dispatch `mousedown` → `mousemove` →
+  `mouseover` on the target → **wait ~170 ms** → `mouseup`.
+  **The trap:** dispatch that `mouseover` with **NO `relatedTarget`**. React's
+  EnterLeaveEventPlugin BAILS OUT of `mouseover` when `relatedTarget` is a node
+  already inside the React tree (it expects the paired `mouseout` to drive it),
+  so setting `relatedTarget` to the source element suppresses the very
+  `onMouseEnter` the drop depends on, and the drag silently does nothing.
+
+*Strict build gate:* `npm run build` → `106 modules transformed, built in
+220ms`, zero errors. (See THE BUILD GATE standing instruction at the top.)
+
+*One small fix made this session:* `PlayScreen`'s `?forceArchetype=` doc comment
+listed the accepted values but had not been updated for `cut-point`; it now
+lists it and states that each variant is tier-restricted.
+
 **✅ BUILD IS UNBLOCKED — standalone build-fix session, NOT a numbered migration
 step.** `npm run build` (`tsc -b && vite build`) had failed ever since Step 1 added
 `Tile.id`, on 2 errors in `solveBag`'s `reconstructAssignment`
@@ -876,13 +1107,21 @@ export interface SolveResult {
   solvable: boolean
   assignment?: Map<string, 'run' | 'group'>
 }
-export function solveBag(tiles: Tile[]): SolveResult
+export function solveBag(tiles: Tile[]): SolveResult    // m=1, oracle only
+export function solveBagM2(tiles: Tile[]): SolveResult  // m<=2, USE THIS
 ```
 Job: given a flat bag of tiles (no grid position), can they be
 partitioned into valid runs/groups using every tile? Reference: van
 Rijn, Takes, Vis, "The Complexity of Rummikub Problems"
 (arXiv:1604.07553) — proves this is O(n) via DP for fixed k=4 colors,
 m=1 copy, n=13 values.
+
+**Post-migration: `solveBagM2` is the real oracle and the one all production
+code calls; `solveBag` is kept ONLY as an independent differential oracle for
+the harnesses. See "m=2 ARCHITECTURE" §2 above for the full rationale — do not
+delete `solveBag`, and do not call it from a builder.** `solveBagM2`'s
+`assignment` is keyed by `tile.id` (the old `${n}_${c}` key collided on
+duplicates).
 
 Known correctness requirements (verify with real executed test cases,
 per the Anti-illusion rule, not by reading the code):
@@ -985,19 +1224,46 @@ index.css. No changes needed to these systems.
 
 ## File responsibilities
 ```
-src/lib/solver.ts       solveBag — bag-level partition oracle, see above
-src/lib/validator.ts    DONE — do not modify without cause
-src/lib/archetypes.ts   puzzle construction — open design, see above
-src/lib/generator.ts    routes generatePuzzle(diff) to archetype builder(s)
-src/lib/verifyEngine.ts standalone harness — re-run after any engine change
+src/lib/solver.ts         solveBagM2 (real oracle) + solveBag (differential only)
+src/lib/validator.ts      DONE — duplicate-safe as-is, do not modify without cause
+src/lib/mixedGoalPlanner.ts  cost model: mixedLayoutMoves + bindMinCostGoal
+src/lib/archetypes.ts     puzzle construction — all six builders
+src/lib/editorRules.ts    pure editor rules: usedIds / mintTile, TILE_COPIES cap
+src/lib/storage.ts        save/load + legacy id-less blob migration
+src/lib/generator.ts      routes generatePuzzle(diff) to archetype builder(s)
+```
+**Harnesses — run with `npx tsx <path>`. Re-run ALL of them after any
+`src/lib/` change; there is no test framework, these ARE the tests:**
+```
+src/lib/verifyEngine.ts             53  (NOTE: not *.verify.ts — easy to miss
+                                         in a loop over *.verify.ts files)
+src/lib/decoy.verify.ts             23
+src/lib/redherring.verify.ts        25
+src/lib/composed.verify.ts          32
+src/lib/cutpoint.verify.ts          36
+src/lib/mixedGoalPlanner.verify.ts  37
+src/lib/pairingMin.verify.ts        31   (~9 min — BFS-bound, run it in
+                                          the background and keep working)
+src/lib/storage.verify.ts           37
+src/lib/dragIdentity.verify.ts      29
 ```
 
 ---
 
 ## Current status (update this after each session)
-Solver, archetypes, generator and the harness are all built and green:
-`npx tsx src/lib/verifyEngine.ts` prints 35/35 self-tests passing and
-invariants (a)-(e) holding on 25 generated puzzles per difficulty.
+**The m=2 migration is COMPLETE (Steps 1-12), on branch `m2-migration`, NOT yet
+merged to `main` — merging is a deliberate review decision, not automatic.**
+All nine harnesses green (303 checks, 0 failures), all eight par numbers exact,
+`npm run build` clean, and a cut-point puzzle has been played to a real
+`validateGrid` win in a browser at exactly par. Read "m=2 ARCHITECTURE —
+CURRENT TRUTH" at the top of this file before touching `src/lib/`.
+
+Six archetypes ship: `groups-to-runs`, `runs-to-groups`, plus the trap layers
+`decoy` / `redherring` / `composed` (hard+extreme) and `cut-point` (medium).
+
+Known open, deliberately: the Library **Play** button (`App.tsx` `handlePlay`
+discards its argument) — does not block playtesting, since `?forceArchetype=`
+and fresh generation reach every archetype.
 
 **The move model — do not re-derive.** usePlayState's DROP reducer,
 GRID→GRID branch, drops a grid tile onto an OCCUPIED cell by SWAPPING

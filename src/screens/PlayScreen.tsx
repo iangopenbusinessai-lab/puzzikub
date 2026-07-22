@@ -52,11 +52,17 @@ export function PlayScreen({ activeScreen, onNav, soundEnabled, onShowSettings, 
   ), [confettiId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   /**
-   * DEV-ONLY: ?forceArchetype=decoy|red-herring|composed|pure-groups-to-runs|
-   * pure-runs-to-groups pins every generated puzzle to that variant. Read once
-   * on mount, deliberately has NO UI affordance — a normal player browsing the
-   * page has no way to discover or trigger it. Anything unrecognised is ignored
-   * and generation behaves exactly as it does without the parameter.
+   * DEV-ONLY: ?forceArchetype=decoy|red-herring|composed|cut-point|
+   * pure-groups-to-runs|pure-runs-to-groups pins every generated puzzle to that
+   * variant. Read once on mount, deliberately has NO UI affordance — a normal
+   * player browsing the page has no way to discover or trigger it. Anything
+   * unrecognised is ignored and generation behaves exactly as it does without
+   * the parameter.
+   *
+   * Each variant is tier-restricted, so the forced build only succeeds on a
+   * difficulty that variant ships at: decoy/red-herring/composed are
+   * hard/extreme only, and cut-point is MEDIUM only. Since this screen mounts
+   * on 'easy', reaching a forced variant means clicking its difficulty.
    */
   const forceType = useMemo(() => {
     if (typeof window === 'undefined') return undefined
